@@ -248,5 +248,7 @@ client.once('ready', () => {
   console.log(`🤖 DASH Bot encendido y listo con sistema completo de Leaderboard`);
   listenForPendingItems();
 });
+const http = require('http');
+http.createServer((req, res) => res.end('DASH Bot Online 24/7')).listen(process.env.PORT || 3000);
 
 client.login(process.env.DISCORD_TOKEN);
