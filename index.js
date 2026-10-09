@@ -15,10 +15,15 @@ const { initializeApp, cert, getApps } = require('firebase-admin/app');
 const { getDatabase } = require('firebase-admin/database');
 const fs = require('fs');
 
-// Cargar credenciales de Firebase
-const serviceAccount = require('./firebase-key.json');
+// Obtener credenciales desde la variable de entorno (Render) o desde archivo local (PC)
+let serviceAccount;
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+} else {
+  serviceAccount = require('./firebase-key.json');
+}
 
-// Inicialización limpia y moderna de Firebase Admin SDK
+// Inicialización de Firebase Admin SDK
 if (getApps().length === 0) {
   initializeApp({
     credential: cert(serviceAccount),
@@ -150,7 +155,6 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.isButton()) {
     const customId = interaction.customId;
 
-    // --- ACEPTAR NIVEL ---
     if (customId.startsWith('accept_level_')) {
       const key = customId.replace('accept_level_', '');
       await interaction.deferUpdate();
@@ -162,10 +166,8 @@ client.on('interactionCreate', async (interaction) => {
 
       const levelData = pendingSnap.val();
 
-      // Guardar nivel oficial
       await db.ref('levels').push().set({ ...levelData, createdAt: Date.now() });
 
-      // Sumar +1 a Creador en Leaderboard
       if (levelData.creatorId) {
         const creatorRef = db.ref(`leaderboard/${levelData.creatorId}`);
         const creatorSnap = await creatorRef.once('value');
@@ -176,7 +178,6 @@ client.on('interactionCreate', async (interaction) => {
         });
       }
 
-      // Sumar +1 a Verificador en Leaderboard
       if (levelData.verifierId) {
         const verifierRef = db.ref(`leaderboard/${levelData.verifierId}`);
         const verifierSnap = await verifierRef.once('value');
@@ -195,7 +196,6 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.editReply({ embeds: [embed], components: [] });
     }
 
-    // --- ACEPTAR RÉCORD ---
     if (customId.startsWith('accept_record_')) {
       const key = customId.replace('accept_record_', '');
       await interaction.deferUpdate();
@@ -208,7 +208,6 @@ client.on('interactionCreate', async (interaction) => {
       const recData = pendingSnap.val();
       const playerId = recData.userId || recData.playerName.toLowerCase().replace(/\s+/g, '_');
 
-      // Puntos: 100 puntos si completó el 100%
       const pointsToAdd = recData.progress === 100 ? 100 : Math.floor(recData.progress * 0.5);
 
       const playerRef = db.ref(`leaderboard/${playerId}`);
@@ -229,7 +228,6 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.editReply({ embeds: [embed], components: [] });
     }
 
-    // --- RECHAZAR NIVEL ---
     if (customId.startsWith('reject_level_')) {
       const key = customId.replace('reject_level_', '');
       await interaction.deferUpdate();
@@ -237,7 +235,6 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.editReply({ content: '❌ Solicitud de nivel rechazada y eliminada.', embeds: [], components: [] });
     }
 
-    // --- RECHAZAR RÉCORD ---
     if (customId.startsWith('reject_record_')) {
       const key = customId.replace('reject_record_', '');
       await interaction.deferUpdate();
