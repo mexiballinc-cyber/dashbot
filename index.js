@@ -56,12 +56,13 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
   try {
-    console.log('Cargando comandos Slash...');
+    console.log('Cargando comandos Slash de forma Global...');
+    // ✅ REGISTRO GLOBAL: Ya no requiere GUILD_ID y los habilita en todos los servidores
     await rest.put(
-      Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+      Routes.applicationCommands(process.env.CLIENT_ID),
       { body: commandsArray }
     );
-    console.log('¡Comandos cargados exitosamente!');
+    console.log('¡Comandos Globales cargados exitosamente!');
   } catch (error) {
     console.error('Error al registrar comandos Slash:', error);
   }
@@ -248,6 +249,7 @@ client.once('ready', () => {
   console.log(`🤖 DASH Bot encendido y listo con sistema completo de Leaderboard`);
   listenForPendingItems();
 });
+
 const http = require('http');
 http.createServer((req, res) => res.end('DASH Bot Online 24/7')).listen(process.env.PORT || 3000);
 
