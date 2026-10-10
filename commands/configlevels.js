@@ -16,17 +16,17 @@ module.exports = {
 
   async execute(interaction) {
     const channel = interaction.options.getChannel('canal');
-    const db = admin.firestore();
+    const db = admin.database();
 
     try {
       await interaction.deferReply({ ephemeral: true });
 
-      // Guardar el ID del canal en la configuración de Firebase
-      await db.collection('settings').doc('channels').set({
+      // Guardar el ID del canal en la configuración de Firebase Realtime Database
+      await db.ref('settings/channels').update({
         levelsChannelId: channel.id,
         updatedBy: interaction.user.tag,
-        updatedAt: new Date()
-      }, { merge: true });
+        updatedAt: Date.now()
+      });
 
       return interaction.editReply({
         content: `✅ **Canal Configurado**: Las solicitudes de niveles ahora se enviarán a ${channel}.`
