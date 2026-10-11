@@ -1,6 +1,6 @@
 // dash-bot/commands/configrecords.js
 const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
-const admin = require('firebase-admin');
+const { getDatabase } = require('firebase-admin/database');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -16,7 +16,7 @@ module.exports = {
 
   async execute(interaction) {
     const channel = interaction.options.getChannel('canal');
-    const db = admin.database();
+    const db = getDatabase();
 
     try {
       await interaction.deferReply({ ephemeral: true });
@@ -31,7 +31,7 @@ module.exports = {
         content: `✅ **Canal de Récords Configurado**: Las solicitudes de récords ahora se enviarán a ${channel}.`
       });
     } catch (error) {
-      console.error(error);
+      console.error('Error en configrecords:', error);
       return interaction.editReply({ content: '❌ Ocurrió un error al guardar el canal en la base de datos.' });
     }
   }
