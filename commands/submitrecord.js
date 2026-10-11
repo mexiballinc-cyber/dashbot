@@ -1,4 +1,3 @@
-// dash-bot/commands/submitrecord.js
 const { SlashCommandBuilder } = require('discord.js');
 const admin = require('firebase-admin');
 
@@ -14,26 +13,27 @@ module.exports = {
     const levelName = interaction.options.getString('nivel');
     const progress = interaction.options.getInteger('progreso');
     const video = interaction.options.getString('video');
-    const db = admin.database();
 
     await interaction.deferReply({ ephemeral: true });
 
     try {
+      const db = admin.database();
       const recordsRef = db.ref('pending_records').push();
       await recordsRef.set({
         levelName,
         progress,
-        video,
+        videoUrl: video,
         userId: interaction.user.id,
-        userTag: interaction.user.tag,
-        createdAt: Date.now()
+        playerName: interaction.user.username,
+        createdAt: Date.now(),
+        notified: false
       });
 
       return interaction.editReply({
         content: `✅ **Récord enviado**: Tu récord de **${progress}%** en **${levelName}** fue enviado a revisión.`
       });
     } catch (error) {
-      console.error(error);
+      console.error('Error en submitrecord:', error);
       return interaction.editReply({ content: '❌ Error al enviar el récord.' });
     }
   }
