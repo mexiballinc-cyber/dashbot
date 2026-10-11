@@ -1,5 +1,5 @@
+// dash-bot/commands/test.js
 const { SlashCommandBuilder } = require('discord.js');
-const admin = require('firebase-admin');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -8,10 +8,16 @@ module.exports = {
 
   async execute(interaction) {
     try {
-      await interaction.reply({ content: '✅ El bot está funcionando correctamente!' });
+      await interaction.reply({ 
+        content: '✅ como tamo mi gente, aqui eta vaina ta funcionando' 
+      });
     } catch (error) {
-      console.error(error);
-      await interaction.reply({ content: '❌ Error en el comando de prueba' });
+      console.error('Error en test:', error);
+      // En caso de error al responder (si el try truena)
+      await interaction.reply({ 
+        content: '❌ mira bien hijo de pu%& madre o sirves o te pego', 
+        ephemeral: true 
+      }).catch(() => {});
     }
   }
 };
