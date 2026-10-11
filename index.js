@@ -22,8 +22,8 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   serviceAccount = require('./firebase-key.json');
 }
 
-// Inicialización global de Firebase Admin SDK
-if (admin.apps.length === 0) {
+// Inicialización segura de Firebase Admin SDK
+if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
     databaseURL: "https://dashlist-3fbec-default-rtdb.firebaseio.com"
