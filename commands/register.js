@@ -1,5 +1,6 @@
+// dash-bot/commands/register.js
 const { SlashCommandBuilder } = require('discord.js');
-const admin = require('firebase-admin');
+const { getDatabase } = require('firebase-admin/database');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -9,7 +10,7 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    const db = admin.database();
+    const db = getDatabase();
     const userId = interaction.user.id;
     const username = interaction.user.username;
     const avatar = interaction.user.avatar
@@ -48,7 +49,7 @@ module.exports = {
         content: `✅ **Registrado en DashList** \nTu Discord ID: \`${userId}\` \nNickname: **${username}**`
       });
     } catch (error) {
-      console.error(error);
+      console.error('Error en register:', error);
       return interaction.editReply({ content: '❌ Ocurrió un error al registrarte en DashList.' });
     }
   }
