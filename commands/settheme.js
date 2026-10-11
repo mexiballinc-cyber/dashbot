@@ -1,4 +1,3 @@
-// dash-bot/commands/settheme.js
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const admin = require('firebase-admin');
 
@@ -21,12 +20,11 @@ module.exports = {
 
   async execute(interaction) {
     const selectedPack = interaction.options.getString('pack');
-    const db = admin.database();
 
     try {
       await interaction.deferReply();
+      const db = admin.database();
 
-      // Guardar en la rama settings/config
       await db.ref('settings/config').update({
         currentSeason: selectedPack,
         updatedBy: interaction.user.tag,
@@ -37,7 +35,7 @@ module.exports = {
         content: `🎨 **¡Tema Global Actualizado!**\nLa web **DashList** cambiará en vivo al paquete: **\`${selectedPack.toUpperCase()}\`**.`
       });
     } catch (error) {
-      console.error(error);
+      console.error('Error en settheme:', error);
       return interaction.editReply({ content: '❌ Ocurrió un error al actualizar el tema en la base de datos.' });
     }
   }
