@@ -1,6 +1,6 @@
 // dash-bot/commands/configlevels.js
 const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
-const admin = require('firebase-admin');
+const { getDatabase } = require('firebase-admin/database');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -16,7 +16,7 @@ module.exports = {
 
   async execute(interaction) {
     const channel = interaction.options.getChannel('canal');
-    const db = admin.database();
+    const db = getDatabase();
 
     try {
       await interaction.deferReply({ ephemeral: true });
@@ -32,7 +32,7 @@ module.exports = {
         content: `✅ **Canal Configurado**: Las solicitudes de niveles ahora se enviarán a ${channel}.`
       });
     } catch (error) {
-      console.error(error);
+      console.error('Error en configlevels:', error);
       return interaction.editReply({ content: '❌ Ocurrió un error al guardar el canal en la base de datos.' });
     }
   }
