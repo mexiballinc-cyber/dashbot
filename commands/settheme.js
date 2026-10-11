@@ -1,5 +1,6 @@
+// dash-bot/commands/settheme.js
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const admin = require('firebase-admin');
+const { getDatabase } = require('firebase-admin/database');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -23,7 +24,7 @@ module.exports = {
 
     try {
       await interaction.deferReply();
-      const db = admin.database();
+      const db = getDatabase();
 
       await db.ref('settings/config').update({
         currentSeason: selectedPack,
