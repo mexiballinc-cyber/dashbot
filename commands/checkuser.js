@@ -1,6 +1,6 @@
 // dash-bot/commands/checkuser.js
 const { SlashCommandBuilder } = require('discord.js');
-const admin = require('firebase-admin');
+const { getDatabase } = require('firebase-admin/database');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -14,7 +14,7 @@ module.exports = {
 
   async execute(interaction) {
     const userId = interaction.options.getString('userid');
-    const db = admin.database();
+    const db = getDatabase();
 
     await interaction.deferReply({ ephemeral: true });
 
@@ -38,7 +38,7 @@ module.exports = {
         content: `✅ **ID Confirmada**: **${tag}** (\`${userId}\`) es una ID válida.`
       });
     } catch (err) {
-      console.error(err);
+      console.error('Error en checkuser:', err);
       return interaction.editReply({ content: '⚠️ Error al consultar la base de datos.' });
     }
   }
