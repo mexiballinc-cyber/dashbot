@@ -11,7 +11,8 @@ const {
   ButtonBuilder, 
   ButtonStyle 
 } = require('discord.js');
-const admin = require('firebase-admin');
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getDatabase } = require('firebase-admin/database');
 const fs = require('fs');
 
 // Obtener credenciales desde la variable de entorno (Render) o archivo local
@@ -22,13 +23,15 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   serviceAccount = require('./firebase-key.json');
 }
 
-// Inicialización directa y sin fallos
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  databaseURL: "https://dashlist-3fbec-default-rtdb.firebaseio.com"
-});
+// Inicialización ultra segura
+if (getApps().length === 0) {
+  initializeApp({
+    credential: cert(serviceAccount),
+    databaseURL: "https://dashlist-3fbec-default-rtdb.firebaseio.com"
+  });
+}
 
-const db = admin.database();
+const db = getDatabase();
 
 const client = new Client({
   intents: [
