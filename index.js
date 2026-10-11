@@ -11,11 +11,10 @@ const {
   ButtonBuilder, 
   ButtonStyle 
 } = require('discord.js');
-const { initializeApp, cert, getApps } = require('firebase-admin/app');
-const { getDatabase } = require('firebase-admin/database');
+const admin = require('firebase-admin');
 const fs = require('fs');
 
-// Obtener credenciales desde la variable de entorno (Render) o desde archivo local (PC)
+// Obtener credenciales desde la variable de entorno (Render) o archivo local
 let serviceAccount;
 if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -23,15 +22,15 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   serviceAccount = require('./firebase-key.json');
 }
 
-// Inicialización de Firebase Admin SDK
-if (getApps().length === 0) {
-  initializeApp({
-    credential: cert(serviceAccount),
+// Inicialización global de Firebase Admin SDK
+if (admin.apps.length === 0) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
     databaseURL: "https://dashlist-3fbec-default-rtdb.firebaseio.com"
   });
 }
 
-const db = getDatabase();
+const db = admin.database();
 
 const client = new Client({
   intents: [
@@ -57,7 +56,6 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 (async () => {
   try {
     console.log('Cargando comandos Slash de forma Global...');
-    // ✅ REGISTRO GLOBAL: Ya no requiere GUILD_ID y los habilita en todos los servidores
     await rest.put(
       Routes.applicationCommands(process.env.CLIENT_ID),
       { body: commandsArray }
@@ -74,7 +72,7 @@ function listenForPendingItems() {
   db.ref('pending_levels').on('child_added', async (snapshot) => {
     const data = snapshot.val();
     const key = snapshot.key;
-    if (data.notified) return;
+    if (!data || data.notified) return;
 
     const channelSnap = await db.ref('settings/channels/levelsChannelId').once('value');
     const channelId = channelSnap.val();
@@ -108,7 +106,7 @@ function listenForPendingItems() {
   db.ref('pending_records').on('child_added', async (snapshot) => {
     const data = snapshot.val();
     const key = snapshot.key;
-    if (data.notified) return;
+    if (!data || data.notified) return;
 
     const channelSnap = await db.ref('settings/channels/recordsChannelId').once('value');
     const channelId = channelSnap.val() || (await db.ref('settings/channels/levelsChannelId').once('value')).val();
@@ -146,8 +144,12 @@ client.on('interactionCreate', async (interaction) => {
       try {
         await command.execute(interaction);
       } catch (err) {
-        console.error(err);
-        await interaction.reply({ content: 'Error al ejecutar comando.', ephemeral: true }).catch(() => {});
+        console.error(`Error ejecutando /${interaction.commandName}:`, err);
+        if (interaction.deferred || interaction.replied) {
+          await interaction.editReply({ content: '❌ Ocurrió un error al ejecutar el comando.' }).catch(() => {});
+        } else {
+          await interaction.reply({ content: '❌ Ocurrió un error al ejecutar el comando.', ephemeral: true }).catch(() => {});
+        }
       }
     }
     return;
