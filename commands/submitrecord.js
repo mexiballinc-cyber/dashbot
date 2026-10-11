@@ -1,5 +1,6 @@
+// dash-bot/commands/submitrecord.js
 const { SlashCommandBuilder } = require('discord.js');
-const admin = require('firebase-admin');
+const { getDatabase } = require('firebase-admin/database');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -13,11 +14,11 @@ module.exports = {
     const levelName = interaction.options.getString('nivel');
     const progress = interaction.options.getInteger('progreso');
     const video = interaction.options.getString('video');
+    const db = getDatabase();
 
     await interaction.deferReply({ ephemeral: true });
 
     try {
-      const db = admin.database();
       const recordsRef = db.ref('pending_records').push();
       await recordsRef.set({
         levelName,
@@ -25,6 +26,7 @@ module.exports = {
         videoUrl: video,
         userId: interaction.user.id,
         playerName: interaction.user.username,
+        userTag: interaction.user.tag,
         createdAt: Date.now(),
         notified: false
       });
