@@ -75,7 +75,6 @@ function listenForPendingItems() {
       const key = snapshot.key;
       if (!data || data.notified) return;
 
-      // Marcar como notificado inmediatamente para evitar re-disparos de eventos
       await db.ref(`pending_levels/${key}`).update({ notified: true });
 
       const channelSnap = await db.ref('settings/channels/levelsChannelId').once('value');
@@ -118,7 +117,6 @@ function listenForPendingItems() {
       const key = snapshot.key;
       if (!data || data.notified) return;
 
-      // Marcar como notificado inmediatamente
       await db.ref(`pending_records/${key}`).update({ notified: true });
 
       const channelSnap = await db.ref('settings/channels/recordsChannelId').once('value');
@@ -151,7 +149,6 @@ function listenForPendingItems() {
   });
 }
 
-// Restricción de Comandos e Interacciones únicamente al Servidor Indicado
 client.on('interactionCreate', async (interaction) => {
   if (interaction.guildId !== TARGET_GUILD_ID) {
     if (interaction.isRepliable()) {
@@ -233,9 +230,9 @@ client.on('interactionCreate', async (interaction) => {
 
         const recData = pendingSnap.val();
         const playerId = recData.userId || (recData.playerName ? recData.playerName.toLowerCase().replace(/\s+/g, '_') : 'unknown_user');
-
         const pointsToAdd = recData.progress === 100 ? 100 : Math.floor((recData.progress || 0) * 0.5);
 
+        // 1. Actualizar Leaderboard del Jugador
         const playerRef = db.ref(`leaderboard/${playerId}`);
         const playerSnap = await playerRef.once('value');
         const currentPoints = playerSnap.exists() ? (playerSnap.val().points || 0) : 0;
@@ -246,6 +243,26 @@ client.on('interactionCreate', async (interaction) => {
           country: recData.country || 'N/A'
         });
 
+        // 2. Vincular el Récord directamente dentro del Nivel en Firebase para la Web
+        const levelsSnap = await db.ref('levels').once('value');
+        if (levelsSnap.exists()) {
+          const levels = levelsSnap.val();
+          const levelKey = Object.keys(levels).find(
+            k => levels[k].name && levels[k].name.trim().toLowerCase() === (recData.levelName || '').trim().toLowerCase()
+          );
+
+          if (levelKey) {
+            await db.ref(`levels/${levelKey}/records`).push().set({
+              playerName: recData.playerName || 'Anónimo',
+              progress: recData.progress || 100,
+              videoUrl: recData.videoUrl || recData.video || '',
+              userId: recData.userId || '',
+              approvedAt: Date.now()
+            });
+          }
+        }
+
+        // 3. Eliminar de pendientes
         await db.ref(`pending_records/${key}`).remove();
 
         const embed = EmbedBuilder.from(interaction.message.embeds[0])
