@@ -14,8 +14,10 @@ const {
 const { initializeApp, cert, getApps } = require('firebase-admin/app');
 const { getDatabase } = require('firebase-admin/database');
 const fs = require('fs');
+const path = require('path');
 
-const TARGET_GUILD_ID = '1555409817785344031';
+// Prefer TARGET_GUILD_ID from environment, fallback to hard-coded official guild
+const TARGET_GUILD_ID = process.env.TARGET_GUILD_ID || '1555409817785344031';
 
 let serviceAccount;
 if (process.env.FIREBASE_SERVICE_ACCOUNT) {
@@ -43,29 +45,79 @@ const client = new Client({
 });
 
 client.commands = new Collection();
-const commandFiles = fs.readdirSync('./commands').filter(file => file.endsWith('.js'));
+const commandsPath = path.join(__dirname, 'commands');
+let commandFiles = [];
+try {
+  commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+} catch (err) {
+  console.error('No se pudo leer la carpeta de comandos:', err);
+}
 const commandsArray = [];
 
 for (const file of commandFiles) {
-  const command = require(`./commands/${file}`);
-  client.commands.set(command.data.name, command);
-  commandsArray.push(command.data.toJSON());
+  try {
+    const command = require(path.join(commandsPath, file));
+    if (!command || !command.data || !command.data.name) {
+      console.warn(`El archivo ${file} no exporta command.data.name — será omitido.`);
+      continue;
+    }
+    client.commands.set(command.data.name, command);
+    commandsArray.push(command.data.toJSON());
+  } catch (err) {
+    console.error(`Error cargando comando ${file}:`, err);
+  }
 }
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
   try {
-    console.log('Limpiando comandos globales antiguos...');
-    // Borra los comandos globales duplicados para evitar conflictos
-    await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: [] });
+    console.log('Archivos de comando encontrados:', commandFiles);
+    console.log('Comandos a registrar:', commandsArray.map(c => c.name));
 
-    console.log(`Cargando comandos Slash exclusivamente para el Servidor ID: ${TARGET_GUILD_ID}...`);
-    await rest.put(
-      Routes.applicationGuildCommands(process.env.CLIENT_ID, TARGET_GUILD_ID),
-      { body: commandsArray }
-    );
-    console.log('¡Comandos del Servidor cargados e instantáneos!');
+    if (!process.env.CLIENT_ID || !process.env.DISCORD_TOKEN) {
+      console.error('FALTAN CLIENT_ID o DISCORD_TOKEN en las variables de entorno. Abortando registro de comandos.');
+      return;
+    }
+
+    // Solo limpiar globales si se activa explícitamente con la variable de entorno
+    if (process.env.CLEAR_GLOBAL_COMMANDS === 'true') {
+      console.log('⚠️ CLEAR_GLOBAL_COMMANDS=true -> limpiando comandos globales...');
+      await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: [] });
+    } else {
+      console.log('No se limpiarán comandos globales (CLEAR_GLOBAL_COMMANDS no está en true).');
+    }
+
+    // Determinar dónde registrar los comandos: GUILD_IDS (lista), TARGET_GUILD_ID o global
+    const envGuilds = (process.env.GUILD_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+    const guildIds = envGuilds.length > 0 ? envGuilds : (TARGET_GUILD_ID ? [TARGET_GUILD_ID] : []);
+
+    if (commandsArray.length === 0) {
+      console.warn('No hay comandos para registrar (commandsArray vacío).');
+    } else if (guildIds.length > 0) {
+      console.log(`Cargando comandos Slash en ${guildIds.length} guild(s):`, guildIds);
+      for (const gid of guildIds) {
+        try {
+          await rest.put(
+            Routes.applicationGuildCommands(process.env.CLIENT_ID, gid),
+            { body: commandsArray }
+          );
+          console.log(`Comandos registrados en el servidor ${gid} (instantáneo).`);
+        } catch (err) {
+          console.error(`Error registrando comandos en guild ${gid}:`, err);
+        }
+      }
+    } else {
+      // Sin guilds, registrar globalmente (puede tardar hasta 1 hora en propagarse)
+      try {
+        console.log('Registrando comandos GLOBALMENTE (puede tardar hasta 1 hora en aparecer)...');
+        await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commandsArray });
+        console.log('Comandos globales registrados.');
+      } catch (err) {
+        console.error('Error registrando comandos globales:', err);
+      }
+    }
+
   } catch (error) {
     console.error('Error al registrar comandos Slash:', error);
   }
