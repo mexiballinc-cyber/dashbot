@@ -1,12 +1,13 @@
 // dash-bot/commands/configtop.js
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { getDatabase } = require('firebase-admin/database');
+
+const ADMIN_IDS = ['1161557418073931807']; // Tu ID de Discord
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('configtop')
     .setDescription('Cambia la posición de Top de un nivel en la lista')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addStringOption(option =>
       option.setName('nivel')
         .setDescription('Nombre del nivel a mover')
@@ -20,14 +21,26 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    if (!ADMIN_IDS.includes(interaction.user.id)) {
+      return interaction.reply({ content: '❌ Sin permisos de administración.', flags: 64 });
+    }
+
+    await interaction.deferReply({ flags: 64 });
+
     const levelName = interaction.options.getString('nivel').trim().toLowerCase();
     const newPosition = interaction.options.getInteger('posicion');
     const db = getDatabase();
 
-    await interaction.deferReply({ ephemeral: true });
+    const fetchLevelsWithTimeout = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('TIMEOUT_FIREBASE')), 4000);
+      db.ref('levels').once('value')
+        .then(snap => { clearTimeout(timer); resolve(snap); })
+        .catch(err => { clearTimeout(timer); reject(err); });
+    });
 
     try {
-      const levelsSnap = await db.ref('levels').once('value');
+      const levelsSnap = await fetchLevelsWithTimeout;
+
       if (!levelsSnap.exists()) {
         return interaction.editReply({ content: '❌ No hay niveles registrados en la base de datos.' });
       }
@@ -35,7 +48,6 @@ module.exports = {
       const levelsData = levelsSnap.val();
       const levelEntries = Object.entries(levelsData).map(([key, val]) => ({ key, ...val }));
 
-      // Ordenar por su posición actual o fecha de creación
       levelEntries.sort((a, b) => (a.order || a.createdAt || 0) - (b.order || b.createdAt || 0));
 
       const targetIndex = levelEntries.findIndex(l => l.name && l.name.trim().toLowerCase() === levelName);
@@ -47,11 +59,9 @@ module.exports = {
         return interaction.editReply({ content: `⚠️ La posición excede el total de niveles. Solo hay **${levelEntries.length}** niveles.` });
       }
 
-      // Reorganizar array de niveles
       const [movedLevel] = levelEntries.splice(targetIndex, 1);
       levelEntries.splice(newPosition - 1, 0, movedLevel);
 
-      // Guardar nuevo orden
       const updates = {};
       levelEntries.forEach((lvl, idx) => {
         updates[`levels/${lvl.key}/order`] = idx + 1;
@@ -64,6 +74,9 @@ module.exports = {
       });
     } catch (err) {
       console.error('Error en configtop:', err);
+      if (err.message === 'TIMEOUT_FIREBASE') {
+        return interaction.editReply({ content: '⚠️ **Error de Conexión**: Firebase tardó demasiado en responder.' });
+      }
       return interaction.editReply({ content: '❌ Ocurrió un error al reordenar los niveles.' });
     }
   }
