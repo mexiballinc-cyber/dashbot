@@ -56,6 +56,10 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
   try {
+    console.log('Limpiando comandos globales antiguos...');
+    // Borra los comandos globales duplicados para evitar conflictos
+    await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: [] });
+
     console.log(`Cargando comandos Slash exclusivamente para el Servidor ID: ${TARGET_GUILD_ID}...`);
     await rest.put(
       Routes.applicationGuildCommands(process.env.CLIENT_ID, TARGET_GUILD_ID),
