@@ -204,7 +204,6 @@ client.on('interactionCreate', async (interaction) => {
 
         const levelData = pendingSnap.val();
         
-        // Obtener la cantidad de niveles actuales para asignarle la última posición por defecto
         const currentLevelsSnap = await db.ref('levels').once('value');
         const totalCurrent = currentLevelsSnap.exists() ? Object.keys(currentLevelsSnap.val()).length : 0;
 
@@ -254,7 +253,6 @@ client.on('interactionCreate', async (interaction) => {
         const recData = pendingSnap.val();
         const playerId = recData.userId || (recData.playerName ? recData.playerName.toLowerCase().replace(/\s+/g, '_') : 'unknown_user');
 
-        // Buscar el nivel en la lista para saber su posición de Top
         const levelsSnap = await db.ref('levels').once('value');
         let levelRank = 1;
         let totalLevels = 1;
@@ -276,13 +274,11 @@ client.on('interactionCreate', async (interaction) => {
           }
         }
 
-        // Calcular puntos según el Top del nivel
         const maxLevelPoints = calculatePointsForRank(levelRank, totalLevels);
         const pointsToAdd = recData.progress === 100 
           ? maxLevelPoints 
           : Math.floor(maxLevelPoints * ((recData.progress || 0) / 100));
 
-        // 1. Actualizar Leaderboard del Jugador
         const playerRef = db.ref(`leaderboard/${playerId}`);
         const playerSnap = await playerRef.once('value');
         const currentPoints = playerSnap.exists() ? (playerSnap.val().points || 0) : 0;
@@ -293,7 +289,6 @@ client.on('interactionCreate', async (interaction) => {
           country: recData.country || 'N/A'
         });
 
-        // 2. Vincular el Récord dentro del Nivel en Firebase
         if (levelKeyFound) {
           await db.ref(`levels/${levelKeyFound}/records`).push().set({
             playerName: recData.playerName || 'Anónimo',
@@ -305,7 +300,6 @@ client.on('interactionCreate', async (interaction) => {
           });
         }
 
-        // 3. Eliminar de pendientes
         await db.ref(`pending_records/${key}`).remove();
 
         const embed = EmbedBuilder.from(interaction.message.embeds[0])
