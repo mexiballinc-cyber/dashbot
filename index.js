@@ -67,6 +67,16 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   }
 })();
 
+// Función para calcular puntos de un nivel según su posición en el Top (#1 = 100pts)
+function calculatePointsForRank(rank, totalLevels) {
+  if (rank <= 0) return 0;
+  const maxPoints = 100;
+  const minPoints = 10;
+  if (totalLevels <= 1) return maxPoints;
+  const step = (maxPoints - minPoints) / (totalLevels - 1);
+  return Math.round(maxPoints - step * (rank - 1));
+}
+
 function listenForPendingItems() {
   // 1. Escuchar Niveles Pendientes
   db.ref('pending_levels').on('child_added', async (snapshot) => {
@@ -91,7 +101,10 @@ function listenForPendingItems() {
           { name: 'Dificultad', value: String(data.difficulty || 'N/A'), inline: true },
           { name: 'ID del Nivel', value: String(data.gdId || 'N/A'), inline: true },
           { name: 'Creador (ID)', value: data.creatorId ? `<@${data.creatorId}> (\`${data.creatorId}\`)` : 'N/A', inline: true },
-          { name: 'Verificador (ID)', value: data.verifierId ? `<@${data.verifierId}> (\`${data.verifierId}\`)` : 'N/A', inline: true }
+          { name: 'Verificador (ID)', value: data.verifierId ? `<@${data.verifierId}> (\`${data.verifierId}\`)` : 'N/A', inline: true },
+          { name: '📺 Showcase', value: data.showcaseUrl ? `[Ver Showcase](${data.showcaseUrl})` : 'Sin video', inline: true },
+          { name: '✅ Verificación', value: data.verificationUrl ? `[Ver Verificación](${data.verificationUrl})` : 'Sin video', inline: true },
+          { name: '📁 Raw Footage', value: data.rawFootageUrl ? `[Ver Raw Footage](${data.rawFootageUrl})` : 'No proporcionado', inline: false }
         )
         .setFooter({ text: `Key: ${key}` });
 
@@ -133,7 +146,8 @@ function listenForPendingItems() {
           { name: 'Jugador', value: String(data.playerName || 'Anónimo'), inline: true },
           { name: 'Progreso', value: `${data.progress || 0}%`, inline: true },
           { name: 'País', value: String(data.country || 'N/A'), inline: true },
-          { name: 'Video Prueba', value: String(data.videoUrl || data.video || 'Sin enlace') }
+          { name: '🎥 Video Prueba', value: data.videoUrl ? `[Ver Video](${data.videoUrl})` : 'Sin enlace', inline: true },
+          { name: '📁 Raw Footage', value: data.rawFootageUrl ? `[Ver Raw Footage](${data.rawFootageUrl})` : 'No proporcionado', inline: true }
         )
         .setFooter({ text: `Key: ${key}` });
 
@@ -189,7 +203,16 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         const levelData = pendingSnap.val();
-        await db.ref('levels').push().set({ ...levelData, createdAt: Date.now() });
+        
+        // Obtener la cantidad de niveles actuales para asignarle la última posición por defecto
+        const currentLevelsSnap = await db.ref('levels').once('value');
+        const totalCurrent = currentLevelsSnap.exists() ? Object.keys(currentLevelsSnap.val()).length : 0;
+
+        await db.ref('levels').push().set({ 
+          ...levelData, 
+          order: totalCurrent + 1,
+          createdAt: Date.now() 
+        });
 
         if (levelData.creatorId) {
           const creatorRef = db.ref(`leaderboard/${levelData.creatorId}`);
@@ -215,7 +238,7 @@ client.on('interactionCreate', async (interaction) => {
 
         const embed = EmbedBuilder.from(interaction.message.embeds[0])
           .setColor(0x57F287)
-          .setTitle(`✅ Nivel Publicado y Leaderboard Actualizada`);
+          .setTitle(`✅ Nivel Publicado (Posición Top #${totalCurrent + 1})`);
         await interaction.editReply({ embeds: [embed], components: [] });
       }
 
@@ -230,7 +253,34 @@ client.on('interactionCreate', async (interaction) => {
 
         const recData = pendingSnap.val();
         const playerId = recData.userId || (recData.playerName ? recData.playerName.toLowerCase().replace(/\s+/g, '_') : 'unknown_user');
-        const pointsToAdd = recData.progress === 100 ? 100 : Math.floor((recData.progress || 0) * 0.5);
+
+        // Buscar el nivel en la lista para saber su posición de Top
+        const levelsSnap = await db.ref('levels').once('value');
+        let levelRank = 1;
+        let totalLevels = 1;
+        let levelKeyFound = null;
+
+        if (levelsSnap.exists()) {
+          const levelsData = levelsSnap.val();
+          const levelEntries = Object.entries(levelsData).map(([k, v]) => ({ key: k, ...v }));
+          levelEntries.sort((a, b) => (a.order || a.createdAt || 0) - (b.order || b.createdAt || 0));
+          totalLevels = levelEntries.length;
+
+          const targetIndex = levelEntries.findIndex(
+            l => l.name && l.name.trim().toLowerCase() === (recData.levelName || '').trim().toLowerCase()
+          );
+
+          if (targetIndex !== -1) {
+            levelRank = targetIndex + 1;
+            levelKeyFound = levelEntries[targetIndex].key;
+          }
+        }
+
+        // Calcular puntos según el Top del nivel
+        const maxLevelPoints = calculatePointsForRank(levelRank, totalLevels);
+        const pointsToAdd = recData.progress === 100 
+          ? maxLevelPoints 
+          : Math.floor(maxLevelPoints * ((recData.progress || 0) / 100));
 
         // 1. Actualizar Leaderboard del Jugador
         const playerRef = db.ref(`leaderboard/${playerId}`);
@@ -243,23 +293,16 @@ client.on('interactionCreate', async (interaction) => {
           country: recData.country || 'N/A'
         });
 
-        // 2. Vincular el Récord directamente dentro del Nivel en Firebase para la Web
-        const levelsSnap = await db.ref('levels').once('value');
-        if (levelsSnap.exists()) {
-          const levels = levelsSnap.val();
-          const levelKey = Object.keys(levels).find(
-            k => levels[k].name && levels[k].name.trim().toLowerCase() === (recData.levelName || '').trim().toLowerCase()
-          );
-
-          if (levelKey) {
-            await db.ref(`levels/${levelKey}/records`).push().set({
-              playerName: recData.playerName || 'Anónimo',
-              progress: recData.progress || 100,
-              videoUrl: recData.videoUrl || recData.video || '',
-              userId: recData.userId || '',
-              approvedAt: Date.now()
-            });
-          }
+        // 2. Vincular el Récord dentro del Nivel en Firebase
+        if (levelKeyFound) {
+          await db.ref(`levels/${levelKeyFound}/records`).push().set({
+            playerName: recData.playerName || 'Anónimo',
+            progress: recData.progress || 100,
+            videoUrl: recData.videoUrl || recData.video || '',
+            rawFootageUrl: recData.rawFootageUrl || '',
+            userId: recData.userId || '',
+            approvedAt: Date.now()
+          });
         }
 
         // 3. Eliminar de pendientes
@@ -267,7 +310,7 @@ client.on('interactionCreate', async (interaction) => {
 
         const embed = EmbedBuilder.from(interaction.message.embeds[0])
           .setColor(0x57F287)
-          .setTitle(`✅ Récord Aceptado: +${pointsToAdd} Puntos a ${recData.playerName || 'Jugador'}`);
+          .setTitle(`✅ Récord Aceptado: +${pointsToAdd} Pts a ${recData.playerName || 'Jugador'} (Nivel Top #${levelRank})`);
         await interaction.editReply({ embeds: [embed], components: [] });
       }
 
