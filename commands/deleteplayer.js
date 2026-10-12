@@ -1,12 +1,13 @@
 // dash-bot/commands/deleteplayer.js
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { getDatabase } = require('firebase-admin/database');
+
+const ADMIN_IDS = ['1161557418073931807'];
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('deleteplayer')
     .setDescription('Elimina un jugador de la Leaderboard')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addStringOption(option =>
       option.setName('jugador')
         .setDescription('ID de Discord o nombre del jugador')
@@ -14,10 +15,14 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    if (!ADMIN_IDS.includes(interaction.user.id)) {
+      return interaction.reply({ content: '❌ Sin permisos de administración.', flags: 64 });
+    }
+
+    await interaction.deferReply({ flags: 64 });
+
     const query = interaction.options.getString('jugador').trim().toLowerCase();
     const db = getDatabase();
-
-    await interaction.deferReply({ ephemeral: true });
 
     try {
       const lbSnap = await db.ref('leaderboard').once('value');
