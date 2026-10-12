@@ -15,7 +15,8 @@ const { initializeApp, cert, getApps } = require('firebase-admin/app');
 const { getDatabase } = require('firebase-admin/database');
 const fs = require('fs');
 
-// Obtener credenciales desde la variable de entorno (Render) o archivo local
+const TARGET_GUILD_ID = '1555409817785344031';
+
 let serviceAccount;
 if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -23,7 +24,6 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   serviceAccount = require('./firebase-key.json');
 }
 
-// Inicialización ultra segura
 if (getApps().length === 0) {
   initializeApp({
     credential: cert(serviceAccount),
@@ -56,89 +56,110 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
   try {
-    console.log('Cargando comandos Slash de forma Global...');
+    console.log(`Cargando comandos Slash exclusivamente para el Servidor ID: ${TARGET_GUILD_ID}...`);
     await rest.put(
-      Routes.applicationCommands(process.env.CLIENT_ID),
+      Routes.applicationGuildCommands(process.env.CLIENT_ID, TARGET_GUILD_ID),
       { body: commandsArray }
     );
-    console.log('¡Comandos Globales cargados exitosamente!');
+    console.log('¡Comandos del Servidor cargados e instantáneos!');
   } catch (error) {
     console.error('Error al registrar comandos Slash:', error);
   }
 })();
 
-// Escuchar NIVELES y RÉCORDS pendientes en tiempo real
 function listenForPendingItems() {
-  // 1. Escuchar Niveles Pendientes desde la Web
+  // 1. Escuchar Niveles Pendientes
   db.ref('pending_levels').on('child_added', async (snapshot) => {
-    const data = snapshot.val();
-    const key = snapshot.key;
-    if (!data || data.notified) return;
+    try {
+      const data = snapshot.val();
+      const key = snapshot.key;
+      if (!data || data.notified) return;
 
-    const channelSnap = await db.ref('settings/channels/levelsChannelId').once('value');
-    const channelId = channelSnap.val();
-    if (!channelId) return;
+      // Marcar como notificado inmediatamente para evitar re-disparos de eventos
+      await db.ref(`pending_levels/${key}`).update({ notified: true });
 
-    const channel = await client.channels.fetch(channelId).catch(() => null);
-    if (!channel) return;
+      const channelSnap = await db.ref('settings/channels/levelsChannelId').once('value');
+      const channelId = channelSnap.val();
+      if (!channelId) return;
 
-    const embed = new EmbedBuilder()
-      .setTitle(`📥 Nueva Solicitud de Nivel: ${data.name}`)
-      .setColor(0x5865F2)
-      .setThumbnail(data.imgurUrl || null)
-      .addFields(
-        { name: 'Dificultad', value: `${data.difficulty}`, inline: true },
-        { name: 'ID del Nivel', value: `${data.gdId}`, inline: true },
-        { name: 'Creador (ID)', value: `<@${data.creatorId}> (\`${data.creatorId}\`)`, inline: true },
-        { name: 'Verificador (ID)', value: `<@${data.verifierId}> (\`${data.verifierId}\`)`, inline: true }
-      )
-      .setFooter({ text: `Key: ${key}` });
+      const channel = await client.channels.fetch(channelId).catch(() => null);
+      if (!channel) return;
 
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`accept_level_${key}`).setLabel('Aceptar Nivel').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`reject_level_${key}`).setLabel('Rechazar Nivel').setStyle(ButtonStyle.Danger)
-    );
+      const embed = new EmbedBuilder()
+        .setTitle(`📥 Nueva Solicitud de Nivel: ${data.name || 'Sin nombre'}`)
+        .setColor(0x5865F2)
+        .addFields(
+          { name: 'Dificultad', value: String(data.difficulty || 'N/A'), inline: true },
+          { name: 'ID del Nivel', value: String(data.gdId || 'N/A'), inline: true },
+          { name: 'Creador (ID)', value: data.creatorId ? `<@${data.creatorId}> (\`${data.creatorId}\`)` : 'N/A', inline: true },
+          { name: 'Verificador (ID)', value: data.verifierId ? `<@${data.verifierId}> (\`${data.verifierId}\`)` : 'N/A', inline: true }
+        )
+        .setFooter({ text: `Key: ${key}` });
 
-    await channel.send({ embeds: [embed], components: [row] });
-    await db.ref(`pending_levels/${key}/notified`).set(true);
+      if (data.imgurUrl && typeof data.imgurUrl === 'string' && data.imgurUrl.startsWith('http')) {
+        embed.setThumbnail(data.imgurUrl);
+      }
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`accept_level_${key}`).setLabel('Aceptar Nivel').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`reject_level_${key}`).setLabel('Rechazar Nivel').setStyle(ButtonStyle.Danger)
+      );
+
+      await channel.send({ embeds: [embed], components: [row] });
+    } catch (err) {
+      console.error('Error procesando child_added en pending_levels:', err);
+    }
   });
 
-  // 2. Escuchar Récords Pendientes desde la Web o Discord
+  // 2. Escuchar Récords Pendientes
   db.ref('pending_records').on('child_added', async (snapshot) => {
-    const data = snapshot.val();
-    const key = snapshot.key;
-    if (!data || data.notified) return;
+    try {
+      const data = snapshot.val();
+      const key = snapshot.key;
+      if (!data || data.notified) return;
 
-    const channelSnap = await db.ref('settings/channels/recordsChannelId').once('value');
-    const channelId = channelSnap.val() || (await db.ref('settings/channels/levelsChannelId').once('value')).val();
-    if (!channelId) return;
+      // Marcar como notificado inmediatamente
+      await db.ref(`pending_records/${key}`).update({ notified: true });
 
-    const channel = await client.channels.fetch(channelId).catch(() => null);
-    if (!channel) return;
+      const channelSnap = await db.ref('settings/channels/recordsChannelId').once('value');
+      const channelId = channelSnap.val() || (await db.ref('settings/channels/levelsChannelId').once('value')).val();
+      if (!channelId) return;
 
-    const embed = new EmbedBuilder()
-      .setTitle(`🏆 Nuevo Récord Enviado: ${data.levelName}`)
-      .setColor(0xFEE75C)
-      .addFields(
-        { name: 'Jugador', value: `${data.playerName}`, inline: true },
-        { name: 'Progreso', value: `${data.progress}%`, inline: true },
-        { name: 'País', value: `${data.country || 'N/A'}`, inline: true },
-        { name: 'Video Prueba', value: `${data.videoUrl || data.video}` }
-      )
-      .setFooter({ text: `Key: ${key}` });
+      const channel = await client.channels.fetch(channelId).catch(() => null);
+      if (!channel) return;
 
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`accept_record_${key}`).setLabel('Aceptar Récord').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`reject_record_${key}`).setLabel('Rechazar Récord').setStyle(ButtonStyle.Danger)
-    );
+      const embed = new EmbedBuilder()
+        .setTitle(`🏆 Nuevo Récord Enviado: ${data.levelName || 'Nivel Desconocido'}`)
+        .setColor(0xFEE75C)
+        .addFields(
+          { name: 'Jugador', value: String(data.playerName || 'Anónimo'), inline: true },
+          { name: 'Progreso', value: `${data.progress || 0}%`, inline: true },
+          { name: 'País', value: String(data.country || 'N/A'), inline: true },
+          { name: 'Video Prueba', value: String(data.videoUrl || data.video || 'Sin enlace') }
+        )
+        .setFooter({ text: `Key: ${key}` });
 
-    await channel.send({ embeds: [embed], components: [row] });
-    await db.ref(`pending_records/${key}/notified`).set(true);
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`accept_record_${key}`).setLabel('Aceptar Récord').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`reject_record_${key}`).setLabel('Rechazar Récord').setStyle(ButtonStyle.Danger)
+      );
+
+      await channel.send({ embeds: [embed], components: [row] });
+    } catch (err) {
+      console.error('Error procesando child_added en pending_records:', err);
+    }
   });
 }
 
-// Interacciones con Comandos y Botones
+// Restricción de Comandos e Interacciones únicamente al Servidor Indicado
 client.on('interactionCreate', async (interaction) => {
+  if (interaction.guildId !== TARGET_GUILD_ID) {
+    if (interaction.isRepliable()) {
+      return interaction.reply({ content: '❌ Este bot está configurado para operar únicamente en su servidor oficial.', ephemeral: true });
+    }
+    return;
+  }
+
   if (interaction.isChatInputCommand()) {
     const command = client.commands.get(interaction.commandName);
     if (command) {
@@ -146,10 +167,11 @@ client.on('interactionCreate', async (interaction) => {
         await command.execute(interaction);
       } catch (err) {
         console.error(`Error ejecutando /${interaction.commandName}:`, err);
+        const errMessage = { content: '❌ Ocurrió un error al ejecutar el comando.', ephemeral: true };
         if (interaction.deferred || interaction.replied) {
-          await interaction.editReply({ content: '❌ Ocurrió un error al ejecutar el comando.' }).catch(() => {});
+          await interaction.editReply(errMessage).catch(() => {});
         } else {
-          await interaction.reply({ content: '❌ Ocurrió un error al ejecutar el comando.', ephemeral: true }).catch(() => {});
+          await interaction.reply(errMessage).catch(() => {});
         }
       }
     }
@@ -159,97 +181,100 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.isButton()) {
     const customId = interaction.customId;
 
-    if (customId.startsWith('accept_level_')) {
-      const key = customId.replace('accept_level_', '');
-      await interaction.deferUpdate();
+    try {
+      if (customId.startsWith('accept_level_')) {
+        const key = customId.replace('accept_level_', '');
+        await interaction.deferUpdate();
 
-      const pendingSnap = await db.ref(`pending_levels/${key}`).once('value');
-      if (!pendingSnap.exists()) {
-        return interaction.followUp({ content: '⚠️ Este nivel ya fue procesado.', ephemeral: true });
+        const pendingSnap = await db.ref(`pending_levels/${key}`).once('value');
+        if (!pendingSnap.exists()) {
+          return interaction.followUp({ content: '⚠️ Este nivel ya fue procesado.', ephemeral: true });
+        }
+
+        const levelData = pendingSnap.val();
+        await db.ref('levels').push().set({ ...levelData, createdAt: Date.now() });
+
+        if (levelData.creatorId) {
+          const creatorRef = db.ref(`leaderboard/${levelData.creatorId}`);
+          const creatorSnap = await creatorRef.once('value');
+          const currentCreated = creatorSnap.exists() ? (creatorSnap.val().createdCount || 0) : 0;
+          await creatorRef.update({
+            name: levelData.creatorName || `User_${levelData.creatorId}`,
+            createdCount: currentCreated + 1
+          });
+        }
+
+        if (levelData.verifierId) {
+          const verifierRef = db.ref(`leaderboard/${levelData.verifierId}`);
+          const verifierSnap = await verifierRef.once('value');
+          const currentVerified = verifierSnap.exists() ? (verifierSnap.val().verifiedCount || 0) : 0;
+          await verifierRef.update({
+            name: levelData.verifierName || `User_${levelData.verifierId}`,
+            verifiedCount: currentVerified + 1
+          });
+        }
+
+        await db.ref(`pending_levels/${key}`).remove();
+
+        const embed = EmbedBuilder.from(interaction.message.embeds[0])
+          .setColor(0x57F287)
+          .setTitle(`✅ Nivel Publicado y Leaderboard Actualizada`);
+        await interaction.editReply({ embeds: [embed], components: [] });
       }
 
-      const levelData = pendingSnap.val();
+      if (customId.startsWith('accept_record_')) {
+        const key = customId.replace('accept_record_', '');
+        await interaction.deferUpdate();
 
-      await db.ref('levels').push().set({ ...levelData, createdAt: Date.now() });
+        const pendingSnap = await db.ref(`pending_records/${key}`).once('value');
+        if (!pendingSnap.exists()) {
+          return interaction.followUp({ content: '⚠️ Este récord ya fue procesado.', ephemeral: true });
+        }
 
-      if (levelData.creatorId) {
-        const creatorRef = db.ref(`leaderboard/${levelData.creatorId}`);
-        const creatorSnap = await creatorRef.once('value');
-        const currentCreated = creatorSnap.exists() ? (creatorSnap.val().createdCount || 0) : 0;
-        await creatorRef.update({
-          name: levelData.creatorName || `User_${levelData.creatorId}`,
-          createdCount: currentCreated + 1
+        const recData = pendingSnap.val();
+        const playerId = recData.userId || (recData.playerName ? recData.playerName.toLowerCase().replace(/\s+/g, '_') : 'unknown_user');
+
+        const pointsToAdd = recData.progress === 100 ? 100 : Math.floor((recData.progress || 0) * 0.5);
+
+        const playerRef = db.ref(`leaderboard/${playerId}`);
+        const playerSnap = await playerRef.once('value');
+        const currentPoints = playerSnap.exists() ? (playerSnap.val().points || 0) : 0;
+
+        await playerRef.update({
+          name: recData.playerName || 'Anónimo',
+          points: currentPoints + pointsToAdd,
+          country: recData.country || 'N/A'
         });
+
+        await db.ref(`pending_records/${key}`).remove();
+
+        const embed = EmbedBuilder.from(interaction.message.embeds[0])
+          .setColor(0x57F287)
+          .setTitle(`✅ Récord Aceptado: +${pointsToAdd} Puntos a ${recData.playerName || 'Jugador'}`);
+        await interaction.editReply({ embeds: [embed], components: [] });
       }
 
-      if (levelData.verifierId) {
-        const verifierRef = db.ref(`leaderboard/${levelData.verifierId}`);
-        const verifierSnap = await verifierRef.once('value');
-        const currentVerified = verifierSnap.exists() ? (verifierSnap.val().verifiedCount || 0) : 0;
-        await verifierRef.update({
-          name: levelData.verifierName || `User_${levelData.verifierId}`,
-          verifiedCount: currentVerified + 1
-        });
+      if (customId.startsWith('reject_level_')) {
+        const key = customId.replace('reject_level_', '');
+        await interaction.deferUpdate();
+        await db.ref(`pending_levels/${key}`).remove();
+        await interaction.editReply({ content: '❌ Solicitud de nivel rechazada y eliminada.', embeds: [], components: [] });
       }
 
-      await db.ref(`pending_levels/${key}`).remove();
-
-      const embed = EmbedBuilder.from(interaction.message.embeds[0])
-        .setColor(0x57F287)
-        .setTitle(`✅ Nivel Publicado y Leaderboard Actualizada`);
-      await interaction.editReply({ embeds: [embed], components: [] });
-    }
-
-    if (customId.startsWith('accept_record_')) {
-      const key = customId.replace('accept_record_', '');
-      await interaction.deferUpdate();
-
-      const pendingSnap = await db.ref(`pending_records/${key}`).once('value');
-      if (!pendingSnap.exists()) {
-        return interaction.followUp({ content: '⚠️ Este récord ya fue procesado.', ephemeral: true });
+      if (customId.startsWith('reject_record_')) {
+        const key = customId.replace('reject_record_', '');
+        await interaction.deferUpdate();
+        await db.ref(`pending_records/${key}`).remove();
+        await interaction.editReply({ content: '❌ Solicitud de récord rechazada y eliminada.', embeds: [], components: [] });
       }
-
-      const recData = pendingSnap.val();
-      const playerId = recData.userId || recData.playerName.toLowerCase().replace(/\s+/g, '_');
-
-      const pointsToAdd = recData.progress === 100 ? 100 : Math.floor(recData.progress * 0.5);
-
-      const playerRef = db.ref(`leaderboard/${playerId}`);
-      const playerSnap = await playerRef.once('value');
-      const currentPoints = playerSnap.exists() ? (playerSnap.val().points || 0) : 0;
-
-      await playerRef.update({
-        name: recData.playerName,
-        points: currentPoints + pointsToAdd,
-        country: recData.country || 'N/A'
-      });
-
-      await db.ref(`pending_records/${key}`).remove();
-
-      const embed = EmbedBuilder.from(interaction.message.embeds[0])
-        .setColor(0x57F287)
-        .setTitle(`✅ Récord Aceptado: +${pointsToAdd} Puntos a ${recData.playerName}`);
-      await interaction.editReply({ embeds: [embed], components: [] });
-    }
-
-    if (customId.startsWith('reject_level_')) {
-      const key = customId.replace('reject_level_', '');
-      await interaction.deferUpdate();
-      await db.ref(`pending_levels/${key}`).remove();
-      await interaction.editReply({ content: '❌ Solicitud de nivel rechazada y eliminada.', embeds: [], components: [] });
-    }
-
-    if (customId.startsWith('reject_record_')) {
-      const key = customId.replace('reject_record_', '');
-      await interaction.deferUpdate();
-      await db.ref(`pending_records/${key}`).remove();
-      await interaction.editReply({ content: '❌ Solicitud de récord rechazada y eliminada.', embeds: [], components: [] });
+    } catch (btnErr) {
+      console.error('Error al procesar interacción de botón:', btnErr);
     }
   }
 });
 
 client.once('ready', () => {
-  console.log(`🤖 DASH Bot encendido y listo con sistema completo de Leaderboard`);
+  console.log(`🤖 DASH Bot encendido y protegido para el servidor ${TARGET_GUILD_ID}`);
   listenForPendingItems();
 });
 
