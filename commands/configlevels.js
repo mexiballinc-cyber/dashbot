@@ -1,12 +1,13 @@
 // dash-bot/commands/configlevels.js
-const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
+const { SlashCommandBuilder, ChannelType } = require('discord.js');
 const { getDatabase } = require('firebase-admin/database');
+
+const ADMIN_IDS = ['1161557418073931807'];
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('configlevels')
-    .setDescription('Configura el canal donde llegarán las solicitudes de nuevos niveles con sus enlaces y Raw Footage')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setDescription('Configura el canal donde llegarán las solicitudes de nuevos niveles')
     .addChannelOption(option =>
       option.setName('canal')
         .setDescription('El canal de texto para revisar niveles')
@@ -15,11 +16,15 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    if (!ADMIN_IDS.includes(interaction.user.id)) {
+      return interaction.reply({ content: '❌ Sin permisos de administración.', flags: 64 });
+    }
+
     const channel = interaction.options.getChannel('canal');
     const db = getDatabase();
 
     try {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: 64 });
 
       await db.ref('settings/channels').update({
         levelsChannelId: channel.id,
