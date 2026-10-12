@@ -5,7 +5,7 @@ const { getDatabase } = require('firebase-admin/database');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('configlevels')
-    .setDescription('Configura el canal donde llegarán las solicitudes de nuevos niveles')
+    .setDescription('Configura el canal donde llegarán las solicitudes de nuevos niveles con sus enlaces y Raw Footage')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addChannelOption(option =>
       option.setName('canal')
@@ -21,7 +21,6 @@ module.exports = {
     try {
       await interaction.deferReply({ ephemeral: true });
 
-      // Guardar el ID del canal en la configuración de Firebase Realtime Database
       await db.ref('settings/channels').update({
         levelsChannelId: channel.id,
         updatedBy: interaction.user.tag,
@@ -29,7 +28,7 @@ module.exports = {
       });
 
       return interaction.editReply({
-        content: `✅ **Canal Configurado**: Las solicitudes de niveles ahora se enviarán a ${channel}.`
+        content: `✅ **Canal Configurado**: Las solicitudes de niveles (con Showcase, Verificación y Raw Footage) ahora se enviarán a ${channel}.`
       });
     } catch (error) {
       console.error('Error en configlevels:', error);
