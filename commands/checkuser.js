@@ -16,13 +16,10 @@ module.exports = {
     const userId = interaction.options.getString('userid');
     const db = getDatabase();
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: 64 });
 
     try {
-      // 1. Buscar en el servidor de Discord
       const member = await interaction.guild.members.fetch(userId).catch(() => null);
-
-      // 2. Buscar en Realtime Database
       const userSnap = await db.ref(`users/${userId}`).once('value');
 
       if (!member && !userSnap.exists()) {
