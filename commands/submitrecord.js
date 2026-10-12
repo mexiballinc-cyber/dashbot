@@ -18,7 +18,7 @@ module.exports = {
     const rawFootage = interaction.options.getString('raw_footage') || '';
     const db = getDatabase();
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: 64 });
 
     try {
       const recordsRef = db.ref('pending_records').push();
