@@ -1,12 +1,13 @@
 // dash-bot/commands/configrecords.js
-const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
+const { SlashCommandBuilder, ChannelType } = require('discord.js');
 const { getDatabase } = require('firebase-admin/database');
+
+const ADMIN_IDS = ['1161557418073931807'];
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('configrecords')
     .setDescription('Configura el canal donde llegarán los récords enviados desde la web o el servidor')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addChannelOption(option =>
       option.setName('canal')
         .setDescription('El canal de texto para revisar récords')
@@ -15,11 +16,15 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    if (!ADMIN_IDS.includes(interaction.user.id)) {
+      return interaction.reply({ content: '❌ Sin permisos de administración.', flags: 64 });
+    }
+
     const channel = interaction.options.getChannel('canal');
     const db = getDatabase();
 
     try {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ flags: 64 });
 
       await db.ref('settings/channels').update({
         recordsChannelId: channel.id,
