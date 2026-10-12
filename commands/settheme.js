@@ -1,12 +1,13 @@
 // dash-bot/commands/settheme.js
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { getDatabase } = require('firebase-admin/database');
+
+const ADMIN_IDS = ['1161557418073931807'];
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('settheme')
     .setDescription('Cambia el tema visual de la DashList globalmente en la web')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addStringOption(option =>
       option.setName('pack')
         .setDescription('Elige el paquete de temporada')
@@ -20,10 +21,14 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    if (!ADMIN_IDS.includes(interaction.user.id)) {
+      return interaction.reply({ content: '❌ Sin permisos.', flags: 64 });
+    }
+
     const selectedPack = interaction.options.getString('pack');
 
     try {
-      await interaction.deferReply();
+      await interaction.deferReply({ flags: 64 });
       const db = getDatabase();
 
       await db.ref('settings/config').update({
