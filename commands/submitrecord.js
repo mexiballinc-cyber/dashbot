@@ -8,12 +8,14 @@ module.exports = {
     .setDescription('Envía un récord de nivel a revisión')
     .addStringOption(opt => opt.setName('nivel').setDescription('Nombre del nivel').setRequired(true))
     .addIntegerOption(opt => opt.setName('progreso').setDescription('Porcentaje (1-100)').setRequired(true))
-    .addStringOption(opt => opt.setName('video').setDescription('Link del video de prueba').setRequired(true)),
+    .addStringOption(opt => opt.setName('video').setDescription('Link del video de prueba').setRequired(true))
+    .addStringOption(opt => opt.setName('raw_footage').setDescription('Link de Raw Footage (sin editar)').setRequired(false)),
 
   async execute(interaction) {
     const levelName = interaction.options.getString('nivel');
     const progress = interaction.options.getInteger('progreso');
     const video = interaction.options.getString('video');
+    const rawFootage = interaction.options.getString('raw_footage') || '';
     const db = getDatabase();
 
     await interaction.deferReply({ ephemeral: true });
@@ -24,6 +26,7 @@ module.exports = {
         levelName: levelName || 'Nivel sin nombre',
         progress: Number(progress) || 0,
         videoUrl: video || '',
+        rawFootageUrl: rawFootage,
         userId: String(interaction.user.id),
         playerName: interaction.user.username || 'Usuario',
         userTag: interaction.user.tag || '',
