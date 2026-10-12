@@ -1,12 +1,13 @@
 // dash-bot/commands/deletelevel.js
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const { getDatabase } = require('firebase-admin/database');
+
+const ADMIN_IDS = ['1161557418073931807'];
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('deletelevel')
     .setDescription('Elimina un nivel de la DashList')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addStringOption(option =>
       option.setName('nivel')
         .setDescription('Nombre del nivel a eliminar')
@@ -14,10 +15,14 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    if (!ADMIN_IDS.includes(interaction.user.id)) {
+      return interaction.reply({ content: '❌ Sin permisos de administración.', flags: 64 });
+    }
+
+    await interaction.deferReply({ flags: 64 });
+
     const levelName = interaction.options.getString('nivel').trim().toLowerCase();
     const db = getDatabase();
-
-    await interaction.deferReply({ ephemeral: true });
 
     try {
       const levelsSnap = await db.ref('levels').once('value');
