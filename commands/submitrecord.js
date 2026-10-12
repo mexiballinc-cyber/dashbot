@@ -21,12 +21,12 @@ module.exports = {
     try {
       const recordsRef = db.ref('pending_records').push();
       await recordsRef.set({
-        levelName,
-        progress,
-        videoUrl: video,
-        userId: interaction.user.id,
-        playerName: interaction.user.username,
-        userTag: interaction.user.tag,
+        levelName: levelName || 'Nivel sin nombre',
+        progress: Number(progress) || 0,
+        videoUrl: video || '',
+        userId: String(interaction.user.id),
+        playerName: interaction.user.username || 'Usuario',
+        userTag: interaction.user.tag || '',
         createdAt: Date.now(),
         notified: false
       });
