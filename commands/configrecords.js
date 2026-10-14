@@ -16,16 +16,16 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    await interaction.deferReply({ flags: 64 }).catch(() => {});
+
     if (!ADMIN_IDS.includes(interaction.user.id)) {
-      return interaction.reply({ content: '❌ Sin permisos de administración.', flags: 64 });
+      return interaction.editReply({ content: '❌ Sin permisos de administración.' });
     }
 
     const channel = interaction.options.getChannel('canal');
     const db = getDatabase();
 
     try {
-      await interaction.deferReply({ flags: 64 });
-
       await db.ref('settings/channels').update({
         recordsChannelId: channel.id,
         updatedBy: interaction.user.tag,
