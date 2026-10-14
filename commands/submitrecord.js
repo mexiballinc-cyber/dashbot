@@ -12,13 +12,13 @@ module.exports = {
     .addStringOption(opt => opt.setName('raw_footage').setDescription('Link de Raw Footage (sin editar)').setRequired(false)),
 
   async execute(interaction) {
+    await interaction.deferReply({ flags: 64 }).catch(() => {});
+
     const levelName = interaction.options.getString('nivel');
     const progress = interaction.options.getInteger('progreso');
     const video = interaction.options.getString('video');
     const rawFootage = interaction.options.getString('raw_footage') || '';
     const db = getDatabase();
-
-    await interaction.deferReply({ flags: 64 });
 
     try {
       const recordsRef = db.ref('pending_records').push();
