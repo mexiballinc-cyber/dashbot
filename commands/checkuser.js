@@ -13,10 +13,10 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    await interaction.deferReply({ flags: 64 }).catch(() => {});
+
     const userId = interaction.options.getString('userid');
     const db = getDatabase();
-
-    await interaction.deferReply({ flags: 64 });
 
     try {
       const member = await interaction.guild.members.fetch(userId).catch(() => null);
