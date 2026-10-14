@@ -21,14 +21,17 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    // 1. PRIMERA LÍNEA: Avisar a Discord de inmediato (evita "La aplicación no respondió")
+    await interaction.deferReply({ flags: 64 }).catch(() => {});
+
+    // 2. Comprobar permisos
     if (!ADMIN_IDS.includes(interaction.user.id)) {
-      return interaction.reply({ content: '❌ Sin permisos.', flags: 64 });
+      return interaction.editReply({ content: '❌ Sin permisos de administración.' });
     }
 
     const selectedPack = interaction.options.getString('pack');
 
     try {
-      await interaction.deferReply({ flags: 64 });
       const db = getDatabase();
 
       await db.ref('settings/config').update({
