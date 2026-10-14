@@ -96,7 +96,6 @@ function calculatePointsForRank(rank, totalLevels) {
   return Math.round(maxPoints - step * (rank - 1));
 }
 
-// Helper para encontrar o crear usuario único en la Leaderboard sin duplicar
 async function getOrCreatePlayerKey(rawIdOrName, defaultName) {
   if (!rawIdOrName) return null;
   const lbSnap = await db.ref('leaderboard').once('value');
@@ -112,12 +111,10 @@ async function getOrCreatePlayerKey(rawIdOrName, defaultName) {
     if (existingKey) return existingKey;
   }
 
-  // Si no existe, usamos la ID formateada
   return String(rawIdOrName).trim();
 }
 
 function listenForPendingItems() {
-  // 1. Escuchar Niveles Pendientes
   db.ref('pending_levels').on('child_added', async (snapshot) => {
     try {
       const data = snapshot.val();
@@ -162,7 +159,6 @@ function listenForPendingItems() {
     }
   });
 
-  // 2. Escuchar Récords Pendientes
   db.ref('pending_records').on('child_added', async (snapshot) => {
     try {
       const data = snapshot.val();
@@ -238,7 +234,6 @@ client.on('interactionCreate', async (interaction) => {
 
         const pendingSnap = await db.ref(`pending_levels/${key}`).once('value');
         if (!pendingSnap.exists()) {
-          // Use followUp to inform after deferring
           return interaction.followUp({ content: '⚠️ Este nivel ya fue procesado.', flags: 64 });
         }
 
@@ -252,7 +247,6 @@ client.on('interactionCreate', async (interaction) => {
           createdAt: Date.now() 
         });
 
-        // Actualizar creador sin duplicar
         const rawCreator = levelData.creatorId || levelData.creatorName;
         if (rawCreator) {
           const creatorKey = await getOrCreatePlayerKey(rawCreator, levelData.creatorName);
@@ -265,7 +259,6 @@ client.on('interactionCreate', async (interaction) => {
           });
         }
 
-        // Actualizar verificador sin duplicar
         const rawVerifier = levelData.verifierId || levelData.verifierName;
         if (rawVerifier) {
           const verifierKey = await getOrCreatePlayerKey(rawVerifier, levelData.verifierName);
@@ -284,10 +277,8 @@ client.on('interactionCreate', async (interaction) => {
           .setColor(0x57F287)
           .setTitle(`✅ Nivel Publicado (Posición Top #${totalCurrent + 1})`);
 
-        // Editamos el mensaje original directamente (compatible con deferUpdate)
         await interaction.message.edit({ embeds: [embed], components: [] }).catch(async (err) => {
           console.error('Error editando mensaje tras accept_level:', err);
-          // Como fallback, enviamos un followUp para que la interacción quede respondida
           try { await interaction.followUp({ content: '✅ Nivel publicado (no se pudo actualizar el mensaje original).', flags: 64 }); } catch (e) {}
         });
       }
