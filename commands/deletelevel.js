@@ -15,11 +15,11 @@ module.exports = {
     ),
 
   async execute(interaction) {
-    if (!ADMIN_IDS.includes(interaction.user.id)) {
-      return interaction.reply({ content: '❌ Sin permisos de administración.', flags: 64 });
-    }
+    await interaction.deferReply({ flags: 64 }).catch(() => {});
 
-    await interaction.deferReply({ flags: 64 });
+    if (!ADMIN_IDS.includes(interaction.user.id)) {
+      return interaction.editReply({ content: '❌ Sin permisos de administración.' });
+    }
 
     const levelName = interaction.options.getString('nivel').trim().toLowerCase();
     const db = getDatabase();
