@@ -238,6 +238,7 @@ client.on('interactionCreate', async (interaction) => {
 
         const pendingSnap = await db.ref(`pending_levels/${key}`).once('value');
         if (!pendingSnap.exists()) {
+          // Use followUp to inform after deferring
           return interaction.followUp({ content: '⚠️ Este nivel ya fue procesado.', flags: 64 });
         }
 
@@ -282,7 +283,13 @@ client.on('interactionCreate', async (interaction) => {
         const embed = EmbedBuilder.from(interaction.message.embeds[0])
           .setColor(0x57F287)
           .setTitle(`✅ Nivel Publicado (Posición Top #${totalCurrent + 1})`);
-        await interaction.editReply({ embeds: [embed], components: [] });
+
+        // Editamos el mensaje original directamente (compatible con deferUpdate)
+        await interaction.message.edit({ embeds: [embed], components: [] }).catch(async (err) => {
+          console.error('Error editando mensaje tras accept_level:', err);
+          // Como fallback, enviamos un followUp para que la interacción quede respondida
+          try { await interaction.followUp({ content: '✅ Nivel publicado (no se pudo actualizar el mensaje original).', flags: 64 }); } catch (e) {}
+        });
       }
 
       if (customId.startsWith('accept_record_')) {
@@ -350,21 +357,31 @@ client.on('interactionCreate', async (interaction) => {
         const embed = EmbedBuilder.from(interaction.message.embeds[0])
           .setColor(0x57F287)
           .setTitle(`✅ Récord Aceptado: +${pointsToAdd} Pts a ${recData.playerName || 'Jugador'} (Nivel Top #${levelRank})`);
-        await interaction.editReply({ embeds: [embed], components: [] });
+
+        await interaction.message.edit({ embeds: [embed], components: [] }).catch(async (err) => {
+          console.error('Error editando mensaje tras accept_record:', err);
+          try { await interaction.followUp({ content: `✅ Récord aceptado (no se pudo actualizar el mensaje original).`, flags: 64 }); } catch (e) {}
+        });
       }
 
       if (customId.startsWith('reject_level_')) {
         const key = customId.replace('reject_level_', '');
         await interaction.deferUpdate();
         await db.ref(`pending_levels/${key}`).remove();
-        await interaction.editReply({ content: '❌ Solicitud de nivel rechazada y eliminada.', embeds: [], components: [] });
+        await interaction.message.edit({ content: '❌ Solicitud de nivel rechazada y eliminada.', embeds: [], components: [] }).catch(async (err) => {
+          console.error('Error editando mensaje tras reject_level:', err);
+          try { await interaction.followUp({ content: '❌ Solicitud de nivel rechazada y eliminada.', flags: 64 }); } catch (e) {}
+        });
       }
 
       if (customId.startsWith('reject_record_')) {
         const key = customId.replace('reject_record_', '');
         await interaction.deferUpdate();
         await db.ref(`pending_records/${key}`).remove();
-        await interaction.editReply({ content: '❌ Solicitud de récord rechazada y eliminada.', embeds: [], components: [] });
+        await interaction.message.edit({ content: '❌ Solicitud de récord rechazada y eliminada.', embeds: [], components: [] }).catch(async (err) => {
+          console.error('Error editando mensaje tras reject_record:', err);
+          try { await interaction.followUp({ content: '❌ Solicitud de récord rechazada y eliminada.', flags: 64 }); } catch (e) {}
+        });
       }
     } catch (btnErr) {
       console.error('Error al procesar interacción de botón:', btnErr);
