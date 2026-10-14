@@ -16,7 +16,6 @@ const { getDatabase } = require('firebase-admin/database');
 const fs = require('fs');
 const path = require('path');
 
-// Prefer TARGET_GUILD_ID from environment, fallback to hard-coded official guild
 const TARGET_GUILD_ID = process.env.TARGET_GUILD_ID || '1555409817785344031';
 
 let serviceAccount;
@@ -57,10 +56,7 @@ const commandsArray = [];
 for (const file of commandFiles) {
   try {
     const command = require(path.join(commandsPath, file));
-    if (!command || !command.data || !command.data.name) {
-      console.warn(`El archivo ${file} no exporta command.data.name — será omitido.`);
-      continue;
-    }
+    if (!command || !command.data || !command.data.name) continue;
     client.commands.set(command.data.name, command);
     commandsArray.push(command.data.toJSON());
   } catch (err) {
@@ -72,58 +68,25 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
   try {
-    console.log('Archivos de comando encontrados:', commandFiles);
-    console.log('Comandos a registrar:', commandsArray.map(c => c.name));
+    if (!process.env.CLIENT_ID || !process.env.DISCORD_TOKEN) return;
 
-    if (!process.env.CLIENT_ID || !process.env.DISCORD_TOKEN) {
-      console.error('FALTAN CLIENT_ID o DISCORD_TOKEN en las variables de entorno. Abortando registro de comandos.');
-      return;
-    }
-
-    // Solo limpiar globales si se activa explícitamente con la variable de entorno
     if (process.env.CLEAR_GLOBAL_COMMANDS === 'true') {
-      console.log('⚠️ CLEAR_GLOBAL_COMMANDS=true -> limpiando comandos globales...');
       await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: [] });
-    } else {
-      console.log('No se limpiarán comandos globales (CLEAR_GLOBAL_COMMANDS no está en true).');
     }
 
-    // Determinar dónde registrar los comandos: GUILD_IDS (lista), TARGET_GUILD_ID o global
     const envGuilds = (process.env.GUILD_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
     const guildIds = envGuilds.length > 0 ? envGuilds : (TARGET_GUILD_ID ? [TARGET_GUILD_ID] : []);
 
-    if (commandsArray.length === 0) {
-      console.warn('No hay comandos para registrar (commandsArray vacío).');
-    } else if (guildIds.length > 0) {
-      console.log(`Cargando comandos Slash en ${guildIds.length} guild(s):`, guildIds);
+    if (guildIds.length > 0) {
       for (const gid of guildIds) {
-        try {
-          await rest.put(
-            Routes.applicationGuildCommands(process.env.CLIENT_ID, gid),
-            { body: commandsArray }
-          );
-          console.log(`Comandos registrados en el servidor ${gid} (instantáneo).`);
-        } catch (err) {
-          console.error(`Error registrando comandos en guild ${gid}:`, err);
-        }
-      }
-    } else {
-      // Sin guilds, registrar globalmente (puede tardar hasta 1 hora en propagarse)
-      try {
-        console.log('Registrando comandos GLOBALMENTE (puede tardar hasta 1 hora en aparecer)...');
-        await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commandsArray });
-        console.log('Comandos globales registrados.');
-      } catch (err) {
-        console.error('Error registrando comandos globales:', err);
+        await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, gid), { body: commandsArray });
       }
     }
-
   } catch (error) {
     console.error('Error al registrar comandos Slash:', error);
   }
 })();
 
-// Función para calcular puntos de un nivel según su posición en el Top (#1 = 100pts)
 function calculatePointsForRank(rank, totalLevels) {
   if (rank <= 0) return 0;
   const maxPoints = 100;
@@ -131,6 +94,26 @@ function calculatePointsForRank(rank, totalLevels) {
   if (totalLevels <= 1) return maxPoints;
   const step = (maxPoints - minPoints) / (totalLevels - 1);
   return Math.round(maxPoints - step * (rank - 1));
+}
+
+// Helper para encontrar o crear usuario único en la Leaderboard sin duplicar
+async function getOrCreatePlayerKey(rawIdOrName, defaultName) {
+  if (!rawIdOrName) return null;
+  const lbSnap = await db.ref('leaderboard').once('value');
+  const searchStr = String(rawIdOrName).trim().toLowerCase();
+
+  if (lbSnap.exists()) {
+    const players = lbSnap.val();
+    const existingKey = Object.keys(players).find(k => 
+      k.toLowerCase() === searchStr || 
+      (players[k].discordId && players[k].discordId.toLowerCase() === searchStr) ||
+      (players[k].name && players[k].name.trim().toLowerCase() === searchStr)
+    );
+    if (existingKey) return existingKey;
+  }
+
+  // Si no existe, usamos la ID formateada
+  return String(rawIdOrName).trim();
 }
 
 function listenForPendingItems() {
@@ -156,8 +139,8 @@ function listenForPendingItems() {
         .addFields(
           { name: 'Dificultad', value: String(data.difficulty || 'N/A'), inline: true },
           { name: 'ID del Nivel', value: String(data.gdId || 'N/A'), inline: true },
-          { name: 'Creador (ID)', value: data.creatorId ? `<@${data.creatorId}> (\`${data.creatorId}\`)` : 'N/A', inline: true },
-          { name: 'Verificador (ID)', value: data.verifierId ? `<@${data.verifierId}> (\`${data.verifierId}\`)` : 'N/A', inline: true },
+          { name: 'Creador (ID)', value: data.creatorId ? `<@${data.creatorId}> (\`${data.creatorId}\`)` : (data.creatorName || 'N/A'), inline: true },
+          { name: 'Verificador (ID)', value: data.verifierId ? `<@${data.verifierId}> (\`${data.verifierId}\`)` : (data.verifierName || 'N/A'), inline: true },
           { name: '📺 Showcase', value: data.showcaseUrl ? `[Ver Showcase](${data.showcaseUrl})` : 'Sin video', inline: true },
           { name: '✅ Verificación', value: data.verificationUrl ? `[Ver Verificación](${data.verificationUrl})` : 'Sin video', inline: true },
           { name: '📁 Raw Footage', value: data.rawFootageUrl ? `[Ver Raw Footage](${data.rawFootageUrl})` : 'No proporcionado', inline: false }
@@ -222,7 +205,7 @@ function listenForPendingItems() {
 client.on('interactionCreate', async (interaction) => {
   if (interaction.guildId !== TARGET_GUILD_ID) {
     if (interaction.isRepliable()) {
-      return interaction.reply({ content: '❌ Este bot está configurado para operar únicamente en su servidor oficial.', ephemeral: true });
+      return interaction.reply({ content: '❌ Este bot está configurado para operar únicamente en su servidor oficial.', flags: 64 });
     }
     return;
   }
@@ -234,7 +217,7 @@ client.on('interactionCreate', async (interaction) => {
         await command.execute(interaction);
       } catch (err) {
         console.error(`Error ejecutando /${interaction.commandName}:`, err);
-        const errMessage = { content: '❌ Ocurrió un error al ejecutar el comando.', ephemeral: true };
+        const errMessage = { content: '❌ Ocurrió un error al ejecutar el comando.', flags: 64 };
         if (interaction.deferred || interaction.replied) {
           await interaction.editReply(errMessage).catch(() => {});
         } else {
@@ -255,11 +238,10 @@ client.on('interactionCreate', async (interaction) => {
 
         const pendingSnap = await db.ref(`pending_levels/${key}`).once('value');
         if (!pendingSnap.exists()) {
-          return interaction.followUp({ content: '⚠️ Este nivel ya fue procesado.', ephemeral: true });
+          return interaction.followUp({ content: '⚠️ Este nivel ya fue procesado.', flags: 64 });
         }
 
         const levelData = pendingSnap.val();
-        
         const currentLevelsSnap = await db.ref('levels').once('value');
         const totalCurrent = currentLevelsSnap.exists() ? Object.keys(currentLevelsSnap.val()).length : 0;
 
@@ -269,22 +251,28 @@ client.on('interactionCreate', async (interaction) => {
           createdAt: Date.now() 
         });
 
-        if (levelData.creatorId) {
-          const creatorRef = db.ref(`leaderboard/${levelData.creatorId}`);
+        // Actualizar creador sin duplicar
+        const rawCreator = levelData.creatorId || levelData.creatorName;
+        if (rawCreator) {
+          const creatorKey = await getOrCreatePlayerKey(rawCreator, levelData.creatorName);
+          const creatorRef = db.ref(`leaderboard/${creatorKey}`);
           const creatorSnap = await creatorRef.once('value');
           const currentCreated = creatorSnap.exists() ? (creatorSnap.val().createdCount || 0) : 0;
           await creatorRef.update({
-            name: levelData.creatorName || `User_${levelData.creatorId}`,
+            name: levelData.creatorName || creatorSnap.val()?.name || `User_${rawCreator}`,
             createdCount: currentCreated + 1
           });
         }
 
-        if (levelData.verifierId) {
-          const verifierRef = db.ref(`leaderboard/${levelData.verifierId}`);
+        // Actualizar verificador sin duplicar
+        const rawVerifier = levelData.verifierId || levelData.verifierName;
+        if (rawVerifier) {
+          const verifierKey = await getOrCreatePlayerKey(rawVerifier, levelData.verifierName);
+          const verifierRef = db.ref(`leaderboard/${verifierKey}`);
           const verifierSnap = await verifierRef.once('value');
           const currentVerified = verifierSnap.exists() ? (verifierSnap.val().verifiedCount || 0) : 0;
           await verifierRef.update({
-            name: levelData.verifierName || `User_${levelData.verifierId}`,
+            name: levelData.verifierName || verifierSnap.val()?.name || `User_${rawVerifier}`,
             verifiedCount: currentVerified + 1
           });
         }
@@ -303,11 +291,12 @@ client.on('interactionCreate', async (interaction) => {
 
         const pendingSnap = await db.ref(`pending_records/${key}`).once('value');
         if (!pendingSnap.exists()) {
-          return interaction.followUp({ content: '⚠️ Este récord ya fue procesado.', ephemeral: true });
+          return interaction.followUp({ content: '⚠️ Este récord ya fue procesado.', flags: 64 });
         }
 
         const recData = pendingSnap.val();
-        const playerId = recData.userId || (recData.playerName ? recData.playerName.toLowerCase().replace(/\s+/g, '_') : 'unknown_user');
+        const rawPlayer = recData.userId || recData.playerName;
+        const playerKey = await getOrCreatePlayerKey(rawPlayer, recData.playerName);
 
         const levelsSnap = await db.ref('levels').once('value');
         let levelRank = 1;
@@ -335,14 +324,14 @@ client.on('interactionCreate', async (interaction) => {
           ? maxLevelPoints 
           : Math.floor(maxLevelPoints * ((recData.progress || 0) / 100));
 
-        const playerRef = db.ref(`leaderboard/${playerId}`);
+        const playerRef = db.ref(`leaderboard/${playerKey}`);
         const playerSnap = await playerRef.once('value');
         const currentPoints = playerSnap.exists() ? (playerSnap.val().points || 0) : 0;
 
         await playerRef.update({
-          name: recData.playerName || 'Anónimo',
+          name: recData.playerName || playerSnap.val()?.name || 'Anónimo',
           points: currentPoints + pointsToAdd,
-          country: recData.country || 'N/A'
+          country: recData.country || playerSnap.val()?.country || 'N/A'
         });
 
         if (levelKeyFound) {
