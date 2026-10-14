@@ -2,7 +2,7 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { getDatabase } = require('firebase-admin/database');
 
-const ADMIN_IDS = ['1161557418073931807']; // Tu ID de Discord
+const ADMIN_IDS = ['1161557418073931807'];
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -21,11 +21,11 @@ module.exports = {
     ),
 
   async execute(interaction) {
-    if (!ADMIN_IDS.includes(interaction.user.id)) {
-      return interaction.reply({ content: '❌ Sin permisos de administración.', flags: 64 });
-    }
+    await interaction.deferReply({ flags: 64 }).catch(() => {});
 
-    await interaction.deferReply({ flags: 64 });
+    if (!ADMIN_IDS.includes(interaction.user.id)) {
+      return interaction.editReply({ content: '❌ Sin permisos de administración.' });
+    }
 
     const levelName = interaction.options.getString('nivel').trim().toLowerCase();
     const newPosition = interaction.options.getInteger('posicion');
