@@ -8,7 +8,7 @@ module.exports = {
     .setDescription('Registra tu usuario de Discord en DashList y Firebase'),
 
   async execute(interaction) {
-    await interaction.deferReply({ flags: 64 });
+    await interaction.deferReply({ flags: 64 }).catch(() => {});
 
     const db = getDatabase();
     const userId = interaction.user.id;
