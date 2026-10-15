@@ -1,5 +1,16 @@
 // dash-bot/index.js
-require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
+
+// Cargar .env desde Secret Files de Render si existe
+const RENDER_ENV_PATH = '/etc/secrets/.env';
+if (fs.existsSync(RENDER_ENV_PATH)) {
+  require('dotenv').config({ path: RENDER_ENV_PATH });
+  console.log('✅ Cargadas variables de entorno desde Secret File (/etc/secrets/.env)');
+} else {
+  require('dotenv').config();
+}
+
 const { 
   Client, 
   GatewayIntentBits, 
@@ -13,39 +24,33 @@ const {
 } = require('discord.js');
 const { initializeApp, cert, getApps } = require('firebase-admin/app');
 const { getDatabase } = require('firebase-admin/database');
-const fs = require('fs');
-const path = require('path');
 
 const TARGET_GUILD_ID = process.env.TARGET_GUILD_ID || '1555409817785344031';
 
-// Cargar credenciales de Firebase en orden de prioridad
+// Cargar credenciales de Firebase desde Secret Files
 let serviceAccount = null;
-
-// 1. Ruta oficial de Secret Files en Render (Linux environment)
 const RENDER_SECRET_PATH = '/etc/secrets/firebase-key.json';
-// 2. Ruta local del proyecto
 const LOCAL_SECRET_PATH = path.join(__dirname, 'firebase-key.json');
 
 if (fs.existsSync(RENDER_SECRET_PATH)) {
   try {
     serviceAccount = JSON.parse(fs.readFileSync(RENDER_SECRET_PATH, 'utf8'));
-    console.log('✅ Cargadas credenciales desde Secret File de Render (/etc/secrets/firebase-key.json)');
+    console.log('✅ Cargadas credenciales de Firebase desde Secret File (/etc/secrets/firebase-key.json)');
   } catch (err) {
-    console.error('❌ Error leyendo Secret File en Render:', err.message);
+    console.error('❌ Error leyendo Secret File de Firebase:', err.message);
   }
 } else if (fs.existsSync(LOCAL_SECRET_PATH)) {
   try {
     serviceAccount = require(LOCAL_SECRET_PATH);
-    console.log('✅ Cargadas credenciales desde firebase-key.json local');
+    console.log('✅ Cargadas credenciales de Firebase desde archivo local');
   } catch (err) {
     console.error('❌ Error leyendo firebase-key.json local:', err.message);
   }
 } else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   try {
     serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    console.log('✅ Cargadas credenciales desde variable FIREBASE_SERVICE_ACCOUNT');
   } catch (err) {
-    console.error('❌ Error parseando variable FIREBASE_SERVICE_ACCOUNT:', err.message);
+    console.error('❌ Error parseando FIREBASE_SERVICE_ACCOUNT:', err.message);
   }
 }
 
@@ -125,12 +130,10 @@ function calculatePointsForRank(rank, totalLevels) {
   return Math.round(maxPoints - step * (rank - 1));
 }
 
-// Vincula correctamente las cuentas registradas en la web
 async function getOrCreatePlayerKey(rawIdOrName, defaultName) {
   if (!rawIdOrName) return null;
   const cleanInput = String(rawIdOrName).trim();
 
-  // Si es una ID numérica de Discord, verifica la tabla de usuarios web primero
   if (/^\d+$/.test(cleanInput)) {
     const userSnap = await db.ref(`users/${cleanInput}`).once('value');
     if (userSnap.exists()) {
@@ -429,9 +432,9 @@ const http = require('http');
 http.createServer((req, res) => res.end('DASH Bot Online 24/7')).listen(process.env.PORT || 3000);
 
 if (!process.env.DISCORD_TOKEN) {
-  console.error('❌ FATAL: No se proporcionó DISCORD_TOKEN en las variables de entorno.');
+  console.error('❌ FATAL: No se proporcionó DISCORD_TOKEN.');
 } else {
   client.login(process.env.DISCORD_TOKEN)
     .then(() => console.log('🔑 Intento de login enviado a Discord...'))
     .catch((loginErr) => console.error('❌ Error al conectar con Discord API:', loginErr.message));
-        }
+}
