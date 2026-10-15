@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 
-// 1. Cargar .env desde Secret Files de Render
+// 1. CARGA DE VARIABLES DE ENTORNO (SECRET FILES DE RENDER O LOCAL)
 const RENDER_ENV_PATH = '/etc/secrets/.env';
 if (fs.existsSync(RENDER_ENV_PATH)) {
   require('dotenv').config({ path: RENDER_ENV_PATH });
@@ -32,7 +32,7 @@ const { getDatabase } = require('firebase-admin/database');
 
 const TARGET_GUILD_ID = process.env.TARGET_GUILD_ID || '1555409817785344031';
 
-// 2. Cargar credenciales de Firebase desde Secret Files
+// 2. CARGA DE CREDENCIALES DE FIREBASE (SECRET FILES DE RENDER O LOCAL)
 let serviceAccount = null;
 const RENDER_SECRET_PATH = '/etc/secrets/firebase-key.json';
 const LOCAL_SECRET_PATH = path.join(__dirname, 'firebase-key.json');
@@ -54,6 +54,7 @@ if (fs.existsSync(RENDER_SECRET_PATH)) {
 } else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   try {
     serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    console.log('✅ Cargadas credenciales desde variable FIREBASE_SERVICE_ACCOUNT');
   } catch (err) {
     console.error('❌ Error parseando FIREBASE_SERVICE_ACCOUNT:', err.message);
   }
@@ -80,6 +81,7 @@ const client = new Client({
   ]
 });
 
+// CARGA DINÁMICA DE COMANDOS DE LA CARPETA /commands
 client.commands = new Collection();
 const commandsPath = path.join(__dirname, 'commands');
 let commandFiles = [];
@@ -110,19 +112,11 @@ function calculatePointsForRank(rank, totalLevels) {
   return Math.round(maxPoints - step * (rank - 1));
 }
 
+// Helper para encontrar o crear usuario único en la Leaderboard sin duplicar
 async function getOrCreatePlayerKey(rawIdOrName, defaultName) {
   if (!rawIdOrName) return null;
-  const cleanInput = String(rawIdOrName).trim();
-
-  if (/^\d+$/.test(cleanInput)) {
-    const userSnap = await db.ref(`users/${cleanInput}`).once('value');
-    if (userSnap.exists()) {
-      return cleanInput;
-    }
-  }
-
   const lbSnap = await db.ref('leaderboard').once('value');
-  const searchStr = cleanInput.toLowerCase();
+  const searchStr = String(rawIdOrName).trim().toLowerCase();
 
   if (lbSnap.exists()) {
     const players = lbSnap.val();
@@ -134,10 +128,11 @@ async function getOrCreatePlayerKey(rawIdOrName, defaultName) {
     if (existingKey) return existingKey;
   }
 
-  return cleanInput;
+  return String(rawIdOrName).trim();
 }
 
 function listenForPendingItems() {
+  // 1. Escuchar Niveles Pendientes
   db.ref('pending_levels').on('child_added', async (snapshot) => {
     try {
       const data = snapshot.val();
@@ -182,6 +177,7 @@ function listenForPendingItems() {
     }
   });
 
+  // 2. Escuchar Récords Pendientes
   db.ref('pending_records').on('child_added', async (snapshot) => {
     try {
       const data = snapshot.val();
@@ -221,6 +217,7 @@ function listenForPendingItems() {
   });
 }
 
+// CONTROL DE INTERACCIONES Y COMANDOS SLASH
 client.on('interactionCreate', async (interaction) => {
   if (interaction.guildId !== TARGET_GUILD_ID) {
     if (interaction.isRepliable()) {
@@ -229,20 +226,19 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
-  // Solución a "El bot se queda pensando": Responder o Diferir inmediatamente
   if (interaction.isChatInputCommand()) {
     const command = client.commands.get(interaction.commandName);
-    if (!command) return;
-
-    try {
-      await command.execute(interaction);
-    } catch (err) {
-      console.error(`Error ejecutando /${interaction.commandName}:`, err);
-      const errMessage = { content: '❌ Ocurrió un error al ejecutar el comando.', flags: 64 };
-      if (interaction.deferred || interaction.replied) {
-        await interaction.editReply(errMessage).catch(() => {});
-      } else {
-        await interaction.reply(errMessage).catch(() => {});
+    if (command) {
+      try {
+        await command.execute(interaction);
+      } catch (err) {
+        console.error(`Error ejecutando /${interaction.commandName}:`, err);
+        const errMessage = { content: '❌ Ocurrió un error al ejecutar el comando.', flags: 64 };
+        if (interaction.deferred || interaction.replied) {
+          await interaction.editReply(errMessage).catch(() => {});
+        } else {
+          await interaction.reply(errMessage).catch(() => {});
+        }
       }
     }
     return;
@@ -301,8 +297,9 @@ client.on('interactionCreate', async (interaction) => {
           .setColor(0x57F287)
           .setTitle(`✅ Nivel Publicado (Posición Top #${totalCurrent + 1})`);
 
-        await interaction.message.edit({ embeds: [embed], components: [] }).catch(async () => {
-          try { await interaction.followUp({ content: '✅ Nivel publicado.', flags: 64 }); } catch (e) {}
+        await interaction.message.edit({ embeds: [embed], components: [] }).catch(async (err) => {
+          console.error('Error editando mensaje tras accept_level:', err);
+          try { await interaction.followUp({ content: '✅ Nivel publicado (no se pudo actualizar el mensaje original).', flags: 64 }); } catch (e) {}
         });
       }
 
@@ -372,8 +369,9 @@ client.on('interactionCreate', async (interaction) => {
           .setColor(0x57F287)
           .setTitle(`✅ Récord Aceptado: +${pointsToAdd} Pts a ${recData.playerName || 'Jugador'} (Nivel Top #${levelRank})`);
 
-        await interaction.message.edit({ embeds: [embed], components: [] }).catch(async () => {
-          try { await interaction.followUp({ content: `✅ Récord aceptado.`, flags: 64 }); } catch (e) {}
+        await interaction.message.edit({ embeds: [embed], components: [] }).catch(async (err) => {
+          console.error('Error editando mensaje tras accept_record:', err);
+          try { await interaction.followUp({ content: `✅ Récord aceptado (no se pudo actualizar el mensaje original).`, flags: 64 }); } catch (e) {}
         });
       }
 
@@ -381,8 +379,9 @@ client.on('interactionCreate', async (interaction) => {
         const key = customId.replace('reject_level_', '');
         await interaction.deferUpdate();
         await db.ref(`pending_levels/${key}`).remove();
-        await interaction.message.edit({ content: '❌ Solicitud de nivel rechazada y eliminada.', embeds: [], components: [] }).catch(async () => {
-          try { await interaction.followUp({ content: '❌ Solicitud rechazada.', flags: 64 }); } catch (e) {}
+        await interaction.message.edit({ content: '❌ Solicitud de nivel rechazada y eliminada.', embeds: [], components: [] }).catch(async (err) => {
+          console.error('Error editando mensaje tras reject_level:', err);
+          try { await interaction.followUp({ content: '❌ Solicitud de nivel rechazada y eliminada.', flags: 64 }); } catch (e) {}
         });
       }
 
@@ -390,8 +389,9 @@ client.on('interactionCreate', async (interaction) => {
         const key = customId.replace('reject_record_', '');
         await interaction.deferUpdate();
         await db.ref(`pending_records/${key}`).remove();
-        await interaction.message.edit({ content: '❌ Solicitud de récord rechazada y eliminada.', embeds: [], components: [] }).catch(async () => {
-          try { await interaction.followUp({ content: '❌ Solicitud rechazada.', flags: 64 }); } catch (e) {}
+        await interaction.message.edit({ content: '❌ Solicitud de récord rechazada y eliminada.', embeds: [], components: [] }).catch(async (err) => {
+          console.error('Error editando mensaje tras reject_record:', err);
+          try { await interaction.followUp({ content: '❌ Solicitud de récord rechazada y eliminada.', flags: 64 }); } catch (e) {}
         });
       }
     } catch (btnErr) {
@@ -401,30 +401,34 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.once('ready', () => {
-  console.log(`🤖 DASH Bot encendido y listo en la cuenta: ${client.user.tag}`);
-  console.log(`🛡️ Vinculado al servidor ID: ${TARGET_GUILD_ID}`);
+  console.log(`🤖 DASH Bot encendido y protegido para el servidor ${TARGET_GUILD_ID}`);
   listenForPendingItems();
 });
 
+// Servidor Web para mantener Render activo 24/7
 const http = require('http');
 http.createServer((req, res) => res.end('DASH Bot Online 24/7')).listen(process.env.PORT || 3000);
 
-// 3. Flujo Principal
+// 3. INICIO DE SESIÓN DIRECTO Y REGISTRO ASÍNCRONO DE COMANDOS
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
 
 if (!token || !clientId) {
-  console.error('❌ FATAL: Falta CLIENT_ID o DISCORD_TOKEN en las variables.');
+  console.error('❌ FATAL: No se proporcionó DISCORD_TOKEN o CLIENT_ID.');
 } else {
-  console.log('🔑 Conectando con la API de Discord...');
+  console.log('🔑 Intentando conectar con Discord API...');
   client.login(token).catch((err) => {
-    console.error('❌ Error al iniciar sesión en Discord API:', err.message);
+    console.error('❌ Error fatal al conectar con Discord API:', err.message);
   });
 
-  // Registrar comandos Slash
+  // Registro de comandos en segundo plano para no congelar la conexión del WebSocket
   const rest = new REST({ version: '10' }).setToken(token);
   (async () => {
     try {
+      if (process.env.CLEAR_GLOBAL_COMMANDS === 'true') {
+        await rest.put(Routes.applicationCommands(clientId), { body: [] });
+      }
+
       const envGuilds = (process.env.GUILD_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
       const guildIds = envGuilds.length > 0 ? envGuilds : (TARGET_GUILD_ID ? [TARGET_GUILD_ID] : []);
 
@@ -432,7 +436,7 @@ if (!token || !clientId) {
         for (const gid of guildIds) {
           await rest.put(Routes.applicationGuildCommands(clientId, gid), { body: commandsArray });
         }
-        console.log(`✅ Comandos Slash registrados correctamente en (${guildIds.join(', ')})`);
+        console.log(`✅ Comandos Slash registrados con éxito en servidor (${guildIds.join(', ')})`);
       }
     } catch (error) {
       console.error('⚠️ Error al registrar comandos Slash:', error.message);
