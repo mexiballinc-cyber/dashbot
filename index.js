@@ -19,13 +19,17 @@ const path = require('path');
 const TARGET_GUILD_ID = process.env.TARGET_GUILD_ID || '1555409817785344031';
 
 let serviceAccount;
-if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-  serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-} else {
-  serviceAccount = require('./firebase-key.json');
+try {
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  } else {
+    serviceAccount = require('./firebase-key.json');
+  }
+} catch (parseErr) {
+  console.error('❌ Error crítico al parsear FIREBASE_SERVICE_ACCOUNT:', parseErr.message);
 }
 
-if (getApps().length === 0) {
+if (getApps().length === 0 && serviceAccount) {
   initializeApp({
     credential: cert(serviceAccount),
     databaseURL: "https://dashlist-3fbec-default-rtdb.firebaseio.com"
@@ -64,11 +68,14 @@ for (const file of commandFiles) {
   }
 }
 
-const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN || '');
 
 (async () => {
   try {
-    if (!process.env.CLIENT_ID || !process.env.DISCORD_TOKEN) return;
+    if (!process.env.CLIENT_ID || !process.env.DISCORD_TOKEN) {
+      console.error('⚠️ Falta CLIENT_ID o DISCORD_TOKEN en el entorno.');
+      return;
+    }
 
     if (process.env.CLEAR_GLOBAL_COMMANDS === 'true') {
       await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: [] });
@@ -388,4 +395,10 @@ client.once('ready', () => {
 const http = require('http');
 http.createServer((req, res) => res.end('DASH Bot Online 24/7')).listen(process.env.PORT || 3000);
 
-client.login(process.env.DISCORD_TOKEN);
+if (!process.env.DISCORD_TOKEN) {
+  console.error('❌ FATAL: No se proporcionó DISCORD_TOKEN en las variables de entorno.');
+} else {
+  client.login(process.env.DISCORD_TOKEN)
+    .then(() => console.log('🔑 Intento de login enviado a Discord...'))
+    .catch((loginErr) => console.error('❌ Error al conectar con Discord API:', loginErr.message));
+}
