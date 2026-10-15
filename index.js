@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 
-// Cargar .env desde Secret Files de Render si existe
+// 1. Cargar .env desde Secret Files de Render o entorno local
 const RENDER_ENV_PATH = '/etc/secrets/.env';
 if (fs.existsSync(RENDER_ENV_PATH)) {
   require('dotenv').config({ path: RENDER_ENV_PATH });
@@ -10,6 +10,11 @@ if (fs.existsSync(RENDER_ENV_PATH)) {
 } else {
   require('dotenv').config();
 }
+
+console.log('🔍 Estado de credenciales en entorno:');
+console.log('   - CLIENT_ID:', process.env.CLIENT_ID ? '✅ OK' : '❌ FALTANTE');
+console.log('   - DISCORD_TOKEN:', process.env.DISCORD_TOKEN ? '✅ OK' : '❌ FALTANTE');
+console.log('   - TARGET_GUILD_ID:', process.env.TARGET_GUILD_ID ? '✅ OK' : '❌ FALTANTE');
 
 const { 
   Client, 
@@ -27,7 +32,7 @@ const { getDatabase } = require('firebase-admin/database');
 
 const TARGET_GUILD_ID = process.env.TARGET_GUILD_ID || '1555409817785344031';
 
-// Cargar credenciales de Firebase desde Secret Files
+// 2. Cargar credenciales de Firebase desde Secret Files
 let serviceAccount = null;
 const RENDER_SECRET_PATH = '/etc/secrets/firebase-key.json';
 const LOCAL_SECRET_PATH = path.join(__dirname, 'firebase-key.json');
@@ -49,6 +54,7 @@ if (fs.existsSync(RENDER_SECRET_PATH)) {
 } else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   try {
     serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    console.log('✅ Cargadas credenciales desde variable FIREBASE_SERVICE_ACCOUNT');
   } catch (err) {
     console.error('❌ Error parseando FIREBASE_SERVICE_ACCOUNT:', err.message);
   }
@@ -61,6 +67,7 @@ if (!serviceAccount) {
     credential: cert(serviceAccount),
     databaseURL: "https://dashlist-3fbec-default-rtdb.firebaseio.com"
   });
+  console.log('🔥 Firebase Admin SDK Inicializado con éxito.');
 }
 
 const db = getDatabase();
@@ -95,32 +102,6 @@ for (const file of commandFiles) {
   }
 }
 
-const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN || '');
-
-(async () => {
-  try {
-    if (!process.env.CLIENT_ID || !process.env.DISCORD_TOKEN) {
-      console.error('⚠️ Falta CLIENT_ID o DISCORD_TOKEN en las variables de entorno.');
-      return;
-    }
-
-    if (process.env.CLEAR_GLOBAL_COMMANDS === 'true') {
-      await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: [] });
-    }
-
-    const envGuilds = (process.env.GUILD_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
-    const guildIds = envGuilds.length > 0 ? envGuilds : (TARGET_GUILD_ID ? [TARGET_GUILD_ID] : []);
-
-    if (guildIds.length > 0) {
-      for (const gid of guildIds) {
-        await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, gid), { body: commandsArray });
-      }
-    }
-  } catch (error) {
-    console.error('Error al registrar comandos Slash:', error);
-  }
-})();
-
 function calculatePointsForRank(rank, totalLevels) {
   if (rank <= 0) return 0;
   const maxPoints = 100;
@@ -130,6 +111,7 @@ function calculatePointsForRank(rank, totalLevels) {
   return Math.round(maxPoints - step * (rank - 1));
 }
 
+// Vincula las cuentas de la web por su ID de Discord para no duplicar datos
 async function getOrCreatePlayerKey(rawIdOrName, defaultName) {
   if (!rawIdOrName) return null;
   const cleanInput = String(rawIdOrName).trim();
@@ -431,10 +413,38 @@ client.once('ready', () => {
 const http = require('http');
 http.createServer((req, res) => res.end('DASH Bot Online 24/7')).listen(process.env.PORT || 3000);
 
-if (!process.env.DISCORD_TOKEN) {
-  console.error('❌ FATAL: No se proporcionó DISCORD_TOKEN.');
-} else {
-  client.login(process.env.DISCORD_TOKEN)
-    .then(() => console.log('🔑 Intento de login enviado a Discord...'))
-    .catch((loginErr) => console.error('❌ Error al conectar con Discord API:', loginErr.message));
-}
+// 3. Flujo Principal de Inicio
+(async () => {
+  const token = process.env.DISCORD_TOKEN;
+  const clientId = process.env.CLIENT_ID;
+
+  if (!token || !clientId) {
+    console.error('❌ FATAL: No se puede registrar ni loguear porque falta CLIENT_ID o DISCORD_TOKEN.');
+    return;
+  }
+
+  const rest = new REST({ version: '10' }).setToken(token);
+
+  try {
+    if (process.env.CLEAR_GLOBAL_COMMANDS === 'true') {
+      await rest.put(Routes.applicationCommands(clientId), { body: [] });
+    }
+
+    const envGuilds = (process.env.GUILD_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+    const guildIds = envGuilds.length > 0 ? envGuilds : (TARGET_GUILD_ID ? [TARGET_GUILD_ID] : []);
+
+    if (guildIds.length > 0) {
+      for (const gid of guildIds) {
+        await rest.put(Routes.applicationGuildCommands(clientId, gid), { body: commandsArray });
+      }
+      console.log(`✅ Comandos Slash registrados con éxito en servidor (${guildIds.join(', ')})`);
+    }
+  } catch (error) {
+    console.error('Error al registrar comandos Slash:', error.message);
+  }
+
+  console.log('🔑 Enviando intento de login a Discord API...');
+  client.login(token).catch((loginErr) => {
+    console.error('❌ Error fatal al conectar con Discord API:', loginErr.message);
+  });
+})();
