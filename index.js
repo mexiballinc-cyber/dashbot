@@ -18,18 +18,40 @@ const path = require('path');
 
 const TARGET_GUILD_ID = process.env.TARGET_GUILD_ID || '1555409817785344031';
 
-let serviceAccount;
-try {
-  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-  } else {
-    serviceAccount = require('./firebase-key.json');
+// Cargar credenciales de Firebase en orden de prioridad
+let serviceAccount = null;
+
+// 1. Ruta oficial de Secret Files en Render (Linux environment)
+const RENDER_SECRET_PATH = '/etc/secrets/firebase-key.json';
+// 2. Ruta local del proyecto
+const LOCAL_SECRET_PATH = path.join(__dirname, 'firebase-key.json');
+
+if (fs.existsSync(RENDER_SECRET_PATH)) {
+  try {
+    serviceAccount = JSON.parse(fs.readFileSync(RENDER_SECRET_PATH, 'utf8'));
+    console.log('✅ Cargadas credenciales desde Secret File de Render (/etc/secrets/firebase-key.json)');
+  } catch (err) {
+    console.error('❌ Error leyendo Secret File en Render:', err.message);
   }
-} catch (parseErr) {
-  console.error('❌ Error crítico al parsear FIREBASE_SERVICE_ACCOUNT:', parseErr.message);
+} else if (fs.existsSync(LOCAL_SECRET_PATH)) {
+  try {
+    serviceAccount = require(LOCAL_SECRET_PATH);
+    console.log('✅ Cargadas credenciales desde firebase-key.json local');
+  } catch (err) {
+    console.error('❌ Error leyendo firebase-key.json local:', err.message);
+  }
+} else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  try {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    console.log('✅ Cargadas credenciales desde variable FIREBASE_SERVICE_ACCOUNT');
+  } catch (err) {
+    console.error('❌ Error parseando variable FIREBASE_SERVICE_ACCOUNT:', err.message);
+  }
 }
 
-if (getApps().length === 0 && serviceAccount) {
+if (!serviceAccount) {
+  console.error('⚠️ CRÍTICO: No se encontraron credenciales válidas de Firebase.');
+} else if (getApps().length === 0) {
   initializeApp({
     credential: cert(serviceAccount),
     databaseURL: "https://dashlist-3fbec-default-rtdb.firebaseio.com"
@@ -73,7 +95,7 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN || '
 (async () => {
   try {
     if (!process.env.CLIENT_ID || !process.env.DISCORD_TOKEN) {
-      console.error('⚠️ Falta CLIENT_ID o DISCORD_TOKEN en el entorno.');
+      console.error('⚠️ Falta CLIENT_ID o DISCORD_TOKEN en las variables de entorno.');
       return;
     }
 
@@ -103,10 +125,21 @@ function calculatePointsForRank(rank, totalLevels) {
   return Math.round(maxPoints - step * (rank - 1));
 }
 
+// Vincula correctamente las cuentas registradas en la web
 async function getOrCreatePlayerKey(rawIdOrName, defaultName) {
   if (!rawIdOrName) return null;
+  const cleanInput = String(rawIdOrName).trim();
+
+  // Si es una ID numérica de Discord, verifica la tabla de usuarios web primero
+  if (/^\d+$/.test(cleanInput)) {
+    const userSnap = await db.ref(`users/${cleanInput}`).once('value');
+    if (userSnap.exists()) {
+      return cleanInput;
+    }
+  }
+
   const lbSnap = await db.ref('leaderboard').once('value');
-  const searchStr = String(rawIdOrName).trim().toLowerCase();
+  const searchStr = cleanInput.toLowerCase();
 
   if (lbSnap.exists()) {
     const players = lbSnap.val();
@@ -118,7 +151,7 @@ async function getOrCreatePlayerKey(rawIdOrName, defaultName) {
     if (existingKey) return existingKey;
   }
 
-  return String(rawIdOrName).trim();
+  return cleanInput;
 }
 
 function listenForPendingItems() {
@@ -401,4 +434,4 @@ if (!process.env.DISCORD_TOKEN) {
   client.login(process.env.DISCORD_TOKEN)
     .then(() => console.log('🔑 Intento de login enviado a Discord...'))
     .catch((loginErr) => console.error('❌ Error al conectar con Discord API:', loginErr.message));
-}
+        }
