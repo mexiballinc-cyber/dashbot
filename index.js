@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 
-// 1. Cargar .env desde Secret Files de Render o entorno local
+// 1. Cargar .env desde Secret Files de Render
 const RENDER_ENV_PATH = '/etc/secrets/.env';
 if (fs.existsSync(RENDER_ENV_PATH)) {
   require('dotenv').config({ path: RENDER_ENV_PATH });
@@ -11,7 +11,7 @@ if (fs.existsSync(RENDER_ENV_PATH)) {
   require('dotenv').config();
 }
 
-console.log('🔍 Estado de credenciales en entorno:');
+console.log('🔍 Estado de credenciales:');
 console.log('   - CLIENT_ID:', process.env.CLIENT_ID ? '✅ OK' : '❌ FALTANTE');
 console.log('   - DISCORD_TOKEN:', process.env.DISCORD_TOKEN ? '✅ OK' : '❌ FALTANTE');
 console.log('   - TARGET_GUILD_ID:', process.env.TARGET_GUILD_ID ? '✅ OK' : '❌ FALTANTE');
@@ -54,7 +54,6 @@ if (fs.existsSync(RENDER_SECRET_PATH)) {
 } else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   try {
     serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    console.log('✅ Cargadas credenciales desde variable FIREBASE_SERVICE_ACCOUNT');
   } catch (err) {
     console.error('❌ Error parseando FIREBASE_SERVICE_ACCOUNT:', err.message);
   }
@@ -111,7 +110,6 @@ function calculatePointsForRank(rank, totalLevels) {
   return Math.round(maxPoints - step * (rank - 1));
 }
 
-// Vincula las cuentas de la web por su ID de Discord para no duplicar datos
 async function getOrCreatePlayerKey(rawIdOrName, defaultName) {
   if (!rawIdOrName) return null;
   const cleanInput = String(rawIdOrName).trim();
@@ -413,38 +411,33 @@ client.once('ready', () => {
 const http = require('http');
 http.createServer((req, res) => res.end('DASH Bot Online 24/7')).listen(process.env.PORT || 3000);
 
-// 3. Flujo Principal de Inicio
-(async () => {
-  const token = process.env.DISCORD_TOKEN;
-  const clientId = process.env.CLIENT_ID;
+// 3. CONEXIÓN INMEDIATA A DISCORD (SIN BLOQUEO)
+const token = process.env.DISCORD_TOKEN;
+const clientId = process.env.CLIENT_ID;
 
-  if (!token || !clientId) {
-    console.error('❌ FATAL: No se puede registrar ni loguear porque falta CLIENT_ID o DISCORD_TOKEN.');
-    return;
-  }
-
-  const rest = new REST({ version: '10' }).setToken(token);
-
-  try {
-    if (process.env.CLEAR_GLOBAL_COMMANDS === 'true') {
-      await rest.put(Routes.applicationCommands(clientId), { body: [] });
-    }
-
-    const envGuilds = (process.env.GUILD_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
-    const guildIds = envGuilds.length > 0 ? envGuilds : (TARGET_GUILD_ID ? [TARGET_GUILD_ID] : []);
-
-    if (guildIds.length > 0) {
-      for (const gid of guildIds) {
-        await rest.put(Routes.applicationGuildCommands(clientId, gid), { body: commandsArray });
-      }
-      console.log(`✅ Comandos Slash registrados con éxito en servidor (${guildIds.join(', ')})`);
-    }
-  } catch (error) {
-    console.error('Error al registrar comandos Slash:', error.message);
-  }
-
-  console.log('🔑 Enviando intento de login a Discord API...');
-  client.login(token).catch((loginErr) => {
-    console.error('❌ Error fatal al conectar con Discord API:', loginErr.message);
+if (!token || !clientId) {
+  console.error('❌ FATAL: Falta CLIENT_ID o DISCORD_TOKEN en las variables.');
+} else {
+  console.log('🔑 Iniciando sesión en Discord...');
+  client.login(token).catch((err) => {
+    console.error('❌ Error al iniciar sesión en Discord API:', err.message);
   });
-})();
+
+  // Registrar comandos Slash en segundo plano
+  const rest = new REST({ version: '10' }).setToken(token);
+  (async () => {
+    try {
+      const envGuilds = (process.env.GUILD_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+      const guildIds = envGuilds.length > 0 ? envGuilds : (TARGET_GUILD_ID ? [TARGET_GUILD_ID] : []);
+
+      if (guildIds.length > 0) {
+        for (const gid of guildIds) {
+          await rest.put(Routes.applicationGuildCommands(clientId, gid), { body: commandsArray });
+        }
+        console.log(`✅ Comandos Slash registrados con éxito (${guildIds.join(', ')})`);
+      }
+    } catch (error) {
+      console.error('⚠️ Error al registrar comandos Slash:', error.message);
+    }
+  })();
+}
