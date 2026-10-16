@@ -1,3 +1,4 @@
+// dash-bot/index.js (Versión Unificada y Estable)
 require('dotenv').config();
 const { 
   Client, 
@@ -15,29 +16,17 @@ const { getDatabase } = require('firebase-admin/database');
 const fs = require('fs');
 const path = require('path');
 
-console.log('--------------------------------------------------');
-console.log('🚀 INICIANDO DASH BOT EN RENDER...');
-
-const TARGET_GUILD_ID = process.env.TARGET_GUILD_ID || '1555409817785344031';
-const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID;
-
-console.log('🔍 VERIFICANDO VARIABLES DE ENTORNO:');
-console.log('   - CLIENT_ID:', CLIENT_ID ? '✅ OK' : '❌ FALTANTE');
-console.log('   - DISCORD_TOKEN:', DISCORD_TOKEN ? '✅ OK' : '❌ FALTANTE');
-console.log('   - TARGET_GUILD_ID:', TARGET_GUILD_ID ? '✅ OK' : '❌ FALTANTE');
-console.log('   - FIREBASE_SERVICE_ACCOUNT:', process.env.FIREBASE_SERVICE_ACCOUNT ? '✅ OK' : '❌ FALTANTE');
-console.log('--------------------------------------------------');
-
-// 1. Inicializar Firebase
+// 1. Detección Inteligente de Credenciales de Firebase (Local o Servidor)
 let serviceAccount;
 if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   try {
     serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
   } catch (e) {
-    console.error('❌ Error al parsear FIREBASE_SERVICE_ACCOUNT:', e.message);
+    console.error('❌ Error parseando FIREBASE_SERVICE_ACCOUNT:', e.message);
   }
-} else {
+}
+
+if (!serviceAccount) {
   try {
     serviceAccount = require('./firebase-key.json');
   } catch (e) {
@@ -50,7 +39,7 @@ if (serviceAccount && getApps().length === 0) {
     credential: cert(serviceAccount),
     databaseURL: "https://dashlist-3fbec-default-rtdb.firebaseio.com"
   });
-  console.log('🔥 Firebase inicializado con éxito.');
+  console.log('🔥 Firebase Admin conectado correctamente.');
 }
 
 const db = getDatabase();
@@ -64,14 +53,14 @@ const client = new Client({
   ]
 });
 
-// 2. Cargar Comandos
+// 2. Carga de Comandos Slash desde /commands
 client.commands = new Collection();
 const commandsPath = path.join(__dirname, 'commands');
 let commandFiles = [];
 try {
   commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
-} catch (err) {
-  console.error('❌ Error leyendo la carpeta /commands:', err);
+} catch (e) {
+  console.error('❌ Error leyendo carpeta commands:', e);
 }
 
 const commandsArray = [];
@@ -87,7 +76,7 @@ for (const file of commandFiles) {
   }
 }
 
-// 3. Funciones Especiales: Cálculo de Puntos y Búsqueda
+// 3. Funciones de Búsqueda y Cálculo de Puntos
 function calculatePointsForRank(rank, totalLevels) {
   if (rank <= 0) return 0;
   const maxPoints = 100;
@@ -97,7 +86,7 @@ function calculatePointsForRank(rank, totalLevels) {
   return Math.round(maxPoints - step * (rank - 1));
 }
 
-async function getOrCreatePlayerKey(rawIdOrName, defaultName) {
+async function getOrCreatePlayerKey(rawIdOrName) {
   if (!rawIdOrName) return null;
   const cleanInput = String(rawIdOrName).trim();
 
@@ -122,7 +111,7 @@ async function getOrCreatePlayerKey(rawIdOrName, defaultName) {
   return cleanInput;
 }
 
-// 4. Escuchar Firebase Pendientes
+// 4. Escucha de Solicitudes Pendientes (Niveles y Récords)
 function listenForPendingItems() {
   db.ref('pending_levels').on('child_added', async (snapshot) => {
     try {
@@ -164,7 +153,7 @@ function listenForPendingItems() {
 
       await channel.send({ embeds: [embed], components: [row] });
     } catch (err) {
-      console.error('Error procesando child_added en pending_levels:', err);
+      console.error('Error procesando pending_levels:', err);
     }
   });
 
@@ -202,15 +191,13 @@ function listenForPendingItems() {
 
       await channel.send({ embeds: [embed], components: [row] });
     } catch (err) {
-      console.error('Error procesando child_added en pending_records:', err);
+      console.error('Error procesando pending_records:', err);
     }
   });
 }
 
-// 5. Manejo de Interacciones
+// 5. Manejador de Interacciones
 client.on('interactionCreate', async (interaction) => {
-  if (interaction.guildId !== TARGET_GUILD_ID) return;
-
   if (interaction.isChatInputCommand()) {
     const command = client.commands.get(interaction.commandName);
     if (!command) return;
@@ -218,9 +205,9 @@ client.on('interactionCreate', async (interaction) => {
     try {
       await command.execute(interaction);
     } catch (err) {
-      console.error(`Error ejecutando /${interaction.commandName}:`, err);
+      console.error(`Error en /${interaction.commandName}:`, err);
       if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({ content: '❌ Error al ejecutar el comando.', ephemeral: true }).catch(() => {});
+        await interaction.reply({ content: '❌ Error ejecutando comando.', ephemeral: true }).catch(() => {});
       }
     }
     return;
@@ -235,7 +222,7 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.deferUpdate();
 
         const pendingSnap = await db.ref(`pending_levels/${key}`).once('value');
-        if (!pendingSnap.exists()) return interaction.followUp({ content: '⚠️ Ya procesado.', flags: 64 });
+        if (!pendingSnap.exists()) return interaction.followUp({ content: '⚠️ Ya procesado.', ephemeral: true });
 
         const levelData = pendingSnap.val();
         const currentLevelsSnap = await db.ref('levels').once('value');
@@ -245,7 +232,7 @@ client.on('interactionCreate', async (interaction) => {
 
         const rawCreator = levelData.creatorId || levelData.creatorName;
         if (rawCreator) {
-          const creatorKey = await getOrCreatePlayerKey(rawCreator, levelData.creatorName);
+          const creatorKey = await getOrCreatePlayerKey(rawCreator);
           const creatorRef = db.ref(`leaderboard/${creatorKey}`);
           const creatorSnap = await creatorRef.once('value');
           const currentCreated = creatorSnap.exists() ? (creatorSnap.val().createdCount || 0) : 0;
@@ -257,7 +244,7 @@ client.on('interactionCreate', async (interaction) => {
 
         const rawVerifier = levelData.verifierId || levelData.verifierName;
         if (rawVerifier) {
-          const verifierKey = await getOrCreatePlayerKey(rawVerifier, levelData.verifierName);
+          const verifierKey = await getOrCreatePlayerKey(rawVerifier);
           const verifierRef = db.ref(`leaderboard/${verifierKey}`);
           const verifierSnap = await verifierRef.once('value');
           const currentVerified = verifierSnap.exists() ? (verifierSnap.val().verifiedCount || 0) : 0;
@@ -271,7 +258,7 @@ client.on('interactionCreate', async (interaction) => {
 
         const embed = EmbedBuilder.from(interaction.message.embeds[0])
           .setColor(0x57F287)
-          .setTitle(`✅ Nivel Publicado (Posición Top #${totalCurrent + 1})`);
+          .setTitle(`✅ Nivel Aceptado y Publicado (#${totalCurrent + 1})`);
 
         await interaction.message.edit({ embeds: [embed], components: [] }).catch(() => {});
       }
@@ -281,11 +268,11 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.deferUpdate();
 
         const pendingSnap = await db.ref(`pending_records/${key}`).once('value');
-        if (!pendingSnap.exists()) return interaction.followUp({ content: '⚠️ Ya procesado.', flags: 64 });
+        if (!pendingSnap.exists()) return interaction.followUp({ content: '⚠️ Ya procesado.', ephemeral: true });
 
         const recData = pendingSnap.val();
         const rawPlayer = recData.userId || recData.playerName;
-        const playerKey = await getOrCreatePlayerKey(rawPlayer, recData.playerName);
+        const playerKey = await getOrCreatePlayerKey(rawPlayer);
 
         const levelsSnap = await db.ref('levels').once('value');
         let levelRank = 1;
@@ -338,7 +325,7 @@ client.on('interactionCreate', async (interaction) => {
 
         const embed = EmbedBuilder.from(interaction.message.embeds[0])
           .setColor(0x57F287)
-          .setTitle(`✅ Récord Aceptado: +${pointsToAdd} Pts a ${recData.playerName || 'Jugador'} (Nivel Top #${levelRank})`);
+          .setTitle(`✅ Récord Aceptado: +${pointsToAdd} Pts a ${recData.playerName || 'Jugador'}`);
 
         await interaction.message.edit({ embeds: [embed], components: [] }).catch(() => {});
       }
@@ -356,40 +343,44 @@ client.on('interactionCreate', async (interaction) => {
         await db.ref(`pending_records/${key}`).remove();
         await interaction.message.edit({ content: '❌ Récord rechazado.', embeds: [], components: [] }).catch(() => {});
       }
-    } catch (btnErr) {
-      console.error('Error en botón:', btnErr);
+    } catch (err) {
+      console.error('Error procesando botón:', err);
     }
   }
 });
 
-client.once('ready', () => {
-  console.log(`🤖 DASH Bot encendido e inició sesión correctamente como: ${client.user.tag}`);
+// 6. Conexión Inmediata a Discord
+client.once('ready', async () => {
+  console.log(`🤖 DASH Bot encendido y listo como: ${client.user.tag}`);
   listenForPendingItems();
-});
 
-// 6. Conexión a Discord API
-if (DISCORD_TOKEN && CLIENT_ID) {
-  console.log('🔑 Intentando conectar a la API de Discord...');
-  
-  const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
-  (async () => {
+  // Registro asíncrono de comandos Slash (Sin bloquear la conexión)
+  const targetGuildId = process.env.TARGET_GUILD_ID || process.env.GUILD_ID;
+  const clientId = process.env.CLIENT_ID;
+
+  if (process.env.DISCORD_TOKEN && clientId && targetGuildId) {
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
       await rest.put(
-        Routes.applicationGuildCommands(CLIENT_ID, TARGET_GUILD_ID),
+        Routes.applicationGuildCommands(clientId, targetGuildId),
         { body: commandsArray }
       );
-      console.log('✅ Comandos Slash registrados en Discord con éxito.');
+      console.log('✅ Comandos Slash registrados exitosamente en Discord.');
     } catch (err) {
-      console.error('⚠️ Error registrando comandos Slash:', err.message);
+      console.error('⚠️ Error al registrar comandos Slash:', err.message);
     }
-  })();
+  }
+});
 
-  client.login(DISCORD_TOKEN).catch(err => {
-    console.error('❌ ERROR FATAL AL LOGUEAR EN DISCORD:', err.message);
+// 7. Inicio de Sesión
+if (process.env.DISCORD_TOKEN) {
+  client.login(process.env.DISCORD_TOKEN).catch(err => {
+    console.error('❌ Error de autenticación con Discord:', err.message);
   });
 } else {
-  console.error('❌ ERROR CRÍTICO: No se encontró CLIENT_ID o DISCORD_TOKEN en las variables.');
+  console.error('❌ Error: DISCORD_TOKEN no está definido en las variables de entorno.');
 }
 
+// Servidor Web Keep-Alive para Render
 const http = require('http');
 http.createServer((req, res) => res.end('DASH Bot Online 24/7')).listen(process.env.PORT || 3000);
