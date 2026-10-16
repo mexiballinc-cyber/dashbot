@@ -15,15 +15,27 @@ const { getDatabase } = require('firebase-admin/database');
 const fs = require('fs');
 const path = require('path');
 
-const TARGET_GUILD_ID = process.env.TARGET_GUILD_ID || '1555409817785344031';
+console.log('--------------------------------------------------');
+console.log('🚀 INICIANDO DASH BOT EN RENDER...');
 
-// 1. Inicialización de Firebase mediante Variable de Entorno normal
+const TARGET_GUILD_ID = process.env.TARGET_GUILD_ID || '1555409817785344031';
+const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
+
+console.log('🔍 VERIFICANDO VARIABLES DE ENTORNO:');
+console.log('   - CLIENT_ID:', CLIENT_ID ? '✅ OK' : '❌ FALTANTE');
+console.log('   - DISCORD_TOKEN:', DISCORD_TOKEN ? '✅ OK' : '❌ FALTANTE');
+console.log('   - TARGET_GUILD_ID:', TARGET_GUILD_ID ? '✅ OK' : '❌ FALTANTE');
+console.log('   - FIREBASE_SERVICE_ACCOUNT:', process.env.FIREBASE_SERVICE_ACCOUNT ? '✅ OK' : '❌ FALTANTE');
+console.log('--------------------------------------------------');
+
+// 1. Inicializar Firebase
 let serviceAccount;
 if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   try {
     serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
   } catch (e) {
-    console.error('❌ Error al procesar FIREBASE_SERVICE_ACCOUNT:', e.message);
+    console.error('❌ Error al parsear FIREBASE_SERVICE_ACCOUNT:', e.message);
   }
 } else {
   try {
@@ -52,7 +64,7 @@ const client = new Client({
   ]
 });
 
-// 2. Carga Dinámica de Comandos de /commands
+// 2. Cargar Comandos
 client.commands = new Collection();
 const commandsPath = path.join(__dirname, 'commands');
 let commandFiles = [];
@@ -75,7 +87,7 @@ for (const file of commandFiles) {
   }
 }
 
-// 3. Funciones Especiales: Cálculo de Puntos y Búsqueda de Jugador
+// 3. Funciones Especiales: Cálculo de Puntos y Búsqueda
 function calculatePointsForRank(rank, totalLevels) {
   if (rank <= 0) return 0;
   const maxPoints = 100;
@@ -91,9 +103,7 @@ async function getOrCreatePlayerKey(rawIdOrName, defaultName) {
 
   if (/^\d+$/.test(cleanInput)) {
     const userSnap = await db.ref(`users/${cleanInput}`).once('value');
-    if (userSnap.exists()) {
-      return cleanInput;
-    }
+    if (userSnap.exists()) return cleanInput;
   }
 
   const lbSnap = await db.ref('leaderboard').once('value');
@@ -112,7 +122,7 @@ async function getOrCreatePlayerKey(rawIdOrName, defaultName) {
   return cleanInput;
 }
 
-// 4. Listener para Solicitudes en Firebase (Botones con Reordenamiento de Top)
+// 4. Escuchar Firebase Pendientes
 function listenForPendingItems() {
   db.ref('pending_levels').on('child_added', async (snapshot) => {
     try {
@@ -197,7 +207,7 @@ function listenForPendingItems() {
   });
 }
 
-// 5. Manejador de Interacciones
+// 5. Manejo de Interacciones
 client.on('interactionCreate', async (interaction) => {
   if (interaction.guildId !== TARGET_GUILD_ID) return;
 
@@ -225,19 +235,13 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.deferUpdate();
 
         const pendingSnap = await db.ref(`pending_levels/${key}`).once('value');
-        if (!pendingSnap.exists()) {
-          return interaction.followUp({ content: '⚠️ Este nivel ya fue procesado.', ephemeral: true });
-        }
+        if (!pendingSnap.exists()) return interaction.followUp({ content: '⚠️ Ya procesado.', flags: 64 });
 
         const levelData = pendingSnap.val();
         const currentLevelsSnap = await db.ref('levels').once('value');
         const totalCurrent = currentLevelsSnap.exists() ? Object.keys(currentLevelsSnap.val()).length : 0;
 
-        await db.ref('levels').push().set({ 
-          ...levelData, 
-          order: totalCurrent + 1,
-          createdAt: Date.now() 
-        });
+        await db.ref('levels').push().set({ ...levelData, order: totalCurrent + 1, createdAt: Date.now() });
 
         const rawCreator = levelData.creatorId || levelData.creatorName;
         if (rawCreator) {
@@ -269,9 +273,7 @@ client.on('interactionCreate', async (interaction) => {
           .setColor(0x57F287)
           .setTitle(`✅ Nivel Publicado (Posición Top #${totalCurrent + 1})`);
 
-        await interaction.message.edit({ embeds: [embed], components: [] }).catch(async () => {
-          try { await interaction.followUp({ content: '✅ Nivel publicado.', ephemeral: true }); } catch (e) {}
-        });
+        await interaction.message.edit({ embeds: [embed], components: [] }).catch(() => {});
       }
 
       if (customId.startsWith('accept_record_')) {
@@ -279,9 +281,7 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.deferUpdate();
 
         const pendingSnap = await db.ref(`pending_records/${key}`).once('value');
-        if (!pendingSnap.exists()) {
-          return interaction.followUp({ content: '⚠️ Este récord ya fue procesado.', ephemeral: true });
-        }
+        if (!pendingSnap.exists()) return interaction.followUp({ content: '⚠️ Ya procesado.', flags: 64 });
 
         const recData = pendingSnap.val();
         const rawPlayer = recData.userId || recData.playerName;
@@ -340,27 +340,21 @@ client.on('interactionCreate', async (interaction) => {
           .setColor(0x57F287)
           .setTitle(`✅ Récord Aceptado: +${pointsToAdd} Pts a ${recData.playerName || 'Jugador'} (Nivel Top #${levelRank})`);
 
-        await interaction.message.edit({ embeds: [embed], components: [] }).catch(async () => {
-          try { await interaction.followUp({ content: `✅ Récord aceptado.`, ephemeral: true }); } catch (e) {}
-        });
+        await interaction.message.edit({ embeds: [embed], components: [] }).catch(() => {});
       }
 
       if (customId.startsWith('reject_level_')) {
         const key = customId.replace('reject_level_', '');
         await interaction.deferUpdate();
         await db.ref(`pending_levels/${key}`).remove();
-        await interaction.message.edit({ content: '❌ Solicitud de nivel rechazada y eliminada.', embeds: [], components: [] }).catch(async () => {
-          try { await interaction.followUp({ content: '❌ Solicitud rechazada.', ephemeral: true }); } catch (e) {}
-        });
+        await interaction.message.edit({ content: '❌ Nivel rechazado.', embeds: [], components: [] }).catch(() => {});
       }
 
       if (customId.startsWith('reject_record_')) {
         const key = customId.replace('reject_record_', '');
         await interaction.deferUpdate();
         await db.ref(`pending_records/${key}`).remove();
-        await interaction.message.edit({ content: '❌ Solicitud de récord rechazada y eliminada.', embeds: [], components: [] }).catch(async () => {
-          try { await interaction.followUp({ content: '❌ Solicitud rechazada.', ephemeral: true }); } catch (e) {}
-        });
+        await interaction.message.edit({ content: '❌ Récord rechazado.', embeds: [], components: [] }).catch(() => {});
       }
     } catch (btnErr) {
       console.error('Error en botón:', btnErr);
@@ -369,31 +363,32 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.once('ready', () => {
-  console.log(`🤖 DASH Bot encendido e inició sesión como: ${client.user.tag}`);
+  console.log(`🤖 DASH Bot encendido e inició sesión correctamente como: ${client.user.tag}`);
   listenForPendingItems();
 });
 
-// Registrar comandos en Discord API
-const token = process.env.DISCORD_TOKEN;
-const clientId = process.env.CLIENT_ID;
-
-if (token && clientId) {
-  const rest = new REST({ version: '10' }).setToken(token);
+// 6. Conexión a Discord API
+if (DISCORD_TOKEN && CLIENT_ID) {
+  console.log('🔑 Intentando conectar a la API de Discord...');
+  
+  const rest = new REST({ version: '10' }).setToken(DISCORD_TOKEN);
   (async () => {
     try {
       await rest.put(
-        Routes.applicationGuildCommands(clientId, TARGET_GUILD_ID),
+        Routes.applicationGuildCommands(CLIENT_ID, TARGET_GUILD_ID),
         { body: commandsArray }
       );
-      console.log('✅ Comandos Slash registrados con éxito.');
+      console.log('✅ Comandos Slash registrados en Discord con éxito.');
     } catch (err) {
-      console.error('Error registrando comandos Slash:', err);
+      console.error('⚠️ Error registrando comandos Slash:', err.message);
     }
   })();
 
-  client.login(token).catch(err => console.error('❌ Error client.login:', err.message));
+  client.login(DISCORD_TOKEN).catch(err => {
+    console.error('❌ ERROR FATAL AL LOGUEAR EN DISCORD:', err.message);
+  });
 } else {
-  console.error('❌ Falta CLIENT_ID o DISCORD_TOKEN en las variables de entorno.');
+  console.error('❌ ERROR CRÍTICO: No se encontró CLIENT_ID o DISCORD_TOKEN en las variables.');
 }
 
 const http = require('http');
