@@ -1,21 +1,4 @@
-// dash-bot/index.js
-const fs = require('fs');
-const path = require('path');
-
-// 1. CARGA DE VARIABLES DE ENTORNO (SECRET FILES DE RENDER O LOCAL)
-const RENDER_ENV_PATH = '/etc/secrets/.env';
-if (fs.existsSync(RENDER_ENV_PATH)) {
-  require('dotenv').config({ path: RENDER_ENV_PATH });
-  console.log('✅ Cargadas variables de entorno desde Secret File (/etc/secrets/.env)');
-} else {
-  require('dotenv').config();
-}
-
-console.log('🔍 Estado de credenciales:');
-console.log('   - CLIENT_ID:', process.env.CLIENT_ID ? '✅ OK' : '❌ FALTANTE');
-console.log('   - DISCORD_TOKEN:', process.env.DISCORD_TOKEN ? '✅ OK' : '❌ FALTANTE');
-console.log('   - TARGET_GUILD_ID:', process.env.TARGET_GUILD_ID ? '✅ OK' : '❌ FALTANTE');
-
+require('dotenv').config();
 const { 
   Client, 
   GatewayIntentBits, 
@@ -29,45 +12,33 @@ const {
 } = require('discord.js');
 const { initializeApp, cert, getApps } = require('firebase-admin/app');
 const { getDatabase } = require('firebase-admin/database');
+const fs = require('fs');
+const path = require('path');
 
 const TARGET_GUILD_ID = process.env.TARGET_GUILD_ID || '1555409817785344031';
 
-// 2. CARGA DE CREDENCIALES DE FIREBASE (SECRET FILES DE RENDER O LOCAL)
-let serviceAccount = null;
-const RENDER_SECRET_PATH = '/etc/secrets/firebase-key.json';
-const LOCAL_SECRET_PATH = path.join(__dirname, 'firebase-key.json');
-
-if (fs.existsSync(RENDER_SECRET_PATH)) {
-  try {
-    serviceAccount = JSON.parse(fs.readFileSync(RENDER_SECRET_PATH, 'utf8'));
-    console.log('✅ Cargadas credenciales de Firebase desde Secret File (/etc/secrets/firebase-key.json)');
-  } catch (err) {
-    console.error('❌ Error leyendo Secret File de Firebase:', err.message);
-  }
-} else if (fs.existsSync(LOCAL_SECRET_PATH)) {
-  try {
-    serviceAccount = require(LOCAL_SECRET_PATH);
-    console.log('✅ Cargadas credenciales de Firebase desde archivo local');
-  } catch (err) {
-    console.error('❌ Error leyendo firebase-key.json local:', err.message);
-  }
-} else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+// 1. Inicialización de Firebase mediante Variable de Entorno normal
+let serviceAccount;
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   try {
     serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    console.log('✅ Cargadas credenciales desde variable FIREBASE_SERVICE_ACCOUNT');
-  } catch (err) {
-    console.error('❌ Error parseando FIREBASE_SERVICE_ACCOUNT:', err.message);
+  } catch (e) {
+    console.error('❌ Error al procesar FIREBASE_SERVICE_ACCOUNT:', e.message);
+  }
+} else {
+  try {
+    serviceAccount = require('./firebase-key.json');
+  } catch (e) {
+    console.error('❌ No se encontró firebase-key.json local.');
   }
 }
 
-if (!serviceAccount) {
-  console.error('⚠️ CRÍTICO: No se encontraron credenciales válidas de Firebase.');
-} else if (getApps().length === 0) {
+if (serviceAccount && getApps().length === 0) {
   initializeApp({
     credential: cert(serviceAccount),
     databaseURL: "https://dashlist-3fbec-default-rtdb.firebaseio.com"
   });
-  console.log('🔥 Firebase Admin SDK Inicializado con éxito.');
+  console.log('🔥 Firebase inicializado con éxito.');
 }
 
 const db = getDatabase();
@@ -81,28 +52,30 @@ const client = new Client({
   ]
 });
 
-// CARGA DINÁMICA DE COMANDOS DE LA CARPETA /commands
+// 2. Carga Dinámica de Comandos de /commands
 client.commands = new Collection();
 const commandsPath = path.join(__dirname, 'commands');
 let commandFiles = [];
 try {
   commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
 } catch (err) {
-  console.error('No se pudo leer la carpeta de comandos:', err);
+  console.error('❌ Error leyendo la carpeta /commands:', err);
 }
-const commandsArray = [];
 
+const commandsArray = [];
 for (const file of commandFiles) {
   try {
     const command = require(path.join(commandsPath, file));
-    if (!command || !command.data || !command.data.name) continue;
-    client.commands.set(command.data.name, command);
-    commandsArray.push(command.data.toJSON());
+    if (command && command.data && command.data.name) {
+      client.commands.set(command.data.name, command);
+      commandsArray.push(command.data.toJSON());
+    }
   } catch (err) {
     console.error(`Error cargando comando ${file}:`, err);
   }
 }
 
+// 3. Funciones Especiales: Cálculo de Puntos y Búsqueda de Jugador
 function calculatePointsForRank(rank, totalLevels) {
   if (rank <= 0) return 0;
   const maxPoints = 100;
@@ -112,11 +85,19 @@ function calculatePointsForRank(rank, totalLevels) {
   return Math.round(maxPoints - step * (rank - 1));
 }
 
-// Helper para encontrar o crear usuario único en la Leaderboard sin duplicar
 async function getOrCreatePlayerKey(rawIdOrName, defaultName) {
   if (!rawIdOrName) return null;
+  const cleanInput = String(rawIdOrName).trim();
+
+  if (/^\d+$/.test(cleanInput)) {
+    const userSnap = await db.ref(`users/${cleanInput}`).once('value');
+    if (userSnap.exists()) {
+      return cleanInput;
+    }
+  }
+
   const lbSnap = await db.ref('leaderboard').once('value');
-  const searchStr = String(rawIdOrName).trim().toLowerCase();
+  const searchStr = cleanInput.toLowerCase();
 
   if (lbSnap.exists()) {
     const players = lbSnap.val();
@@ -128,11 +109,11 @@ async function getOrCreatePlayerKey(rawIdOrName, defaultName) {
     if (existingKey) return existingKey;
   }
 
-  return String(rawIdOrName).trim();
+  return cleanInput;
 }
 
+// 4. Listener para Solicitudes en Firebase (Botones con Reordenamiento de Top)
 function listenForPendingItems() {
-  // 1. Escuchar Niveles Pendientes
   db.ref('pending_levels').on('child_added', async (snapshot) => {
     try {
       const data = snapshot.val();
@@ -177,7 +158,6 @@ function listenForPendingItems() {
     }
   });
 
-  // 2. Escuchar Récords Pendientes
   db.ref('pending_records').on('child_added', async (snapshot) => {
     try {
       const data = snapshot.val();
@@ -217,28 +197,20 @@ function listenForPendingItems() {
   });
 }
 
-// CONTROL DE INTERACCIONES Y COMANDOS SLASH
+// 5. Manejador de Interacciones
 client.on('interactionCreate', async (interaction) => {
-  if (interaction.guildId !== TARGET_GUILD_ID) {
-    if (interaction.isRepliable()) {
-      return interaction.reply({ content: '❌ Este bot está configurado para operar únicamente en su servidor oficial.', flags: 64 });
-    }
-    return;
-  }
+  if (interaction.guildId !== TARGET_GUILD_ID) return;
 
   if (interaction.isChatInputCommand()) {
     const command = client.commands.get(interaction.commandName);
-    if (command) {
-      try {
-        await command.execute(interaction);
-      } catch (err) {
-        console.error(`Error ejecutando /${interaction.commandName}:`, err);
-        const errMessage = { content: '❌ Ocurrió un error al ejecutar el comando.', flags: 64 };
-        if (interaction.deferred || interaction.replied) {
-          await interaction.editReply(errMessage).catch(() => {});
-        } else {
-          await interaction.reply(errMessage).catch(() => {});
-        }
+    if (!command) return;
+
+    try {
+      await command.execute(interaction);
+    } catch (err) {
+      console.error(`Error ejecutando /${interaction.commandName}:`, err);
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: '❌ Error al ejecutar el comando.', ephemeral: true }).catch(() => {});
       }
     }
     return;
@@ -254,7 +226,7 @@ client.on('interactionCreate', async (interaction) => {
 
         const pendingSnap = await db.ref(`pending_levels/${key}`).once('value');
         if (!pendingSnap.exists()) {
-          return interaction.followUp({ content: '⚠️ Este nivel ya fue procesado.', flags: 64 });
+          return interaction.followUp({ content: '⚠️ Este nivel ya fue procesado.', ephemeral: true });
         }
 
         const levelData = pendingSnap.val();
@@ -297,9 +269,8 @@ client.on('interactionCreate', async (interaction) => {
           .setColor(0x57F287)
           .setTitle(`✅ Nivel Publicado (Posición Top #${totalCurrent + 1})`);
 
-        await interaction.message.edit({ embeds: [embed], components: [] }).catch(async (err) => {
-          console.error('Error editando mensaje tras accept_level:', err);
-          try { await interaction.followUp({ content: '✅ Nivel publicado (no se pudo actualizar el mensaje original).', flags: 64 }); } catch (e) {}
+        await interaction.message.edit({ embeds: [embed], components: [] }).catch(async () => {
+          try { await interaction.followUp({ content: '✅ Nivel publicado.', ephemeral: true }); } catch (e) {}
         });
       }
 
@@ -309,7 +280,7 @@ client.on('interactionCreate', async (interaction) => {
 
         const pendingSnap = await db.ref(`pending_records/${key}`).once('value');
         if (!pendingSnap.exists()) {
-          return interaction.followUp({ content: '⚠️ Este récord ya fue procesado.', flags: 64 });
+          return interaction.followUp({ content: '⚠️ Este récord ya fue procesado.', ephemeral: true });
         }
 
         const recData = pendingSnap.val();
@@ -369,9 +340,8 @@ client.on('interactionCreate', async (interaction) => {
           .setColor(0x57F287)
           .setTitle(`✅ Récord Aceptado: +${pointsToAdd} Pts a ${recData.playerName || 'Jugador'} (Nivel Top #${levelRank})`);
 
-        await interaction.message.edit({ embeds: [embed], components: [] }).catch(async (err) => {
-          console.error('Error editando mensaje tras accept_record:', err);
-          try { await interaction.followUp({ content: `✅ Récord aceptado (no se pudo actualizar el mensaje original).`, flags: 64 }); } catch (e) {}
+        await interaction.message.edit({ embeds: [embed], components: [] }).catch(async () => {
+          try { await interaction.followUp({ content: `✅ Récord aceptado.`, ephemeral: true }); } catch (e) {}
         });
       }
 
@@ -379,9 +349,8 @@ client.on('interactionCreate', async (interaction) => {
         const key = customId.replace('reject_level_', '');
         await interaction.deferUpdate();
         await db.ref(`pending_levels/${key}`).remove();
-        await interaction.message.edit({ content: '❌ Solicitud de nivel rechazada y eliminada.', embeds: [], components: [] }).catch(async (err) => {
-          console.error('Error editando mensaje tras reject_level:', err);
-          try { await interaction.followUp({ content: '❌ Solicitud de nivel rechazada y eliminada.', flags: 64 }); } catch (e) {}
+        await interaction.message.edit({ content: '❌ Solicitud de nivel rechazada y eliminada.', embeds: [], components: [] }).catch(async () => {
+          try { await interaction.followUp({ content: '❌ Solicitud rechazada.', ephemeral: true }); } catch (e) {}
         });
       }
 
@@ -389,57 +358,43 @@ client.on('interactionCreate', async (interaction) => {
         const key = customId.replace('reject_record_', '');
         await interaction.deferUpdate();
         await db.ref(`pending_records/${key}`).remove();
-        await interaction.message.edit({ content: '❌ Solicitud de récord rechazada y eliminada.', embeds: [], components: [] }).catch(async (err) => {
-          console.error('Error editando mensaje tras reject_record:', err);
-          try { await interaction.followUp({ content: '❌ Solicitud de récord rechazada y eliminada.', flags: 64 }); } catch (e) {}
+        await interaction.message.edit({ content: '❌ Solicitud de récord rechazada y eliminada.', embeds: [], components: [] }).catch(async () => {
+          try { await interaction.followUp({ content: '❌ Solicitud rechazada.', ephemeral: true }); } catch (e) {}
         });
       }
     } catch (btnErr) {
-      console.error('Error al procesar interacción de botón:', btnErr);
+      console.error('Error en botón:', btnErr);
     }
   }
 });
 
 client.once('ready', () => {
-  console.log(`🤖 DASH Bot encendido y protegido para el servidor ${TARGET_GUILD_ID}`);
+  console.log(`🤖 DASH Bot encendido e inició sesión como: ${client.user.tag}`);
   listenForPendingItems();
 });
 
-// Servidor Web para mantener Render activo 24/7
-const http = require('http');
-http.createServer((req, res) => res.end('DASH Bot Online 24/7')).listen(process.env.PORT || 3000);
-
-// 3. INICIO DE SESIÓN DIRECTO Y REGISTRO ASÍNCRONO DE COMANDOS
+// Registrar comandos en Discord API
 const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
 
-if (!token || !clientId) {
-  console.error('❌ FATAL: No se proporcionó DISCORD_TOKEN o CLIENT_ID.');
-} else {
-  console.log('🔑 Intentando conectar con Discord API...');
-  client.login(token).catch((err) => {
-    console.error('❌ Error fatal al conectar con Discord API:', err.message);
-  });
-
-  // Registro de comandos en segundo plano para no congelar la conexión del WebSocket
+if (token && clientId) {
   const rest = new REST({ version: '10' }).setToken(token);
   (async () => {
     try {
-      if (process.env.CLEAR_GLOBAL_COMMANDS === 'true') {
-        await rest.put(Routes.applicationCommands(clientId), { body: [] });
-      }
-
-      const envGuilds = (process.env.GUILD_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
-      const guildIds = envGuilds.length > 0 ? envGuilds : (TARGET_GUILD_ID ? [TARGET_GUILD_ID] : []);
-
-      if (guildIds.length > 0) {
-        for (const gid of guildIds) {
-          await rest.put(Routes.applicationGuildCommands(clientId, gid), { body: commandsArray });
-        }
-        console.log(`✅ Comandos Slash registrados con éxito en servidor (${guildIds.join(', ')})`);
-      }
-    } catch (error) {
-      console.error('⚠️ Error al registrar comandos Slash:', error.message);
+      await rest.put(
+        Routes.applicationGuildCommands(clientId, TARGET_GUILD_ID),
+        { body: commandsArray }
+      );
+      console.log('✅ Comandos Slash registrados con éxito.');
+    } catch (err) {
+      console.error('Error registrando comandos Slash:', err);
     }
   })();
+
+  client.login(token).catch(err => console.error('❌ Error client.login:', err.message));
+} else {
+  console.error('❌ Falta CLIENT_ID o DISCORD_TOKEN en las variables de entorno.');
 }
+
+const http = require('http');
+http.createServer((req, res) => res.end('DASH Bot Online 24/7')).listen(process.env.PORT || 3000);
